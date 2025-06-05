@@ -1,6 +1,7 @@
 import pymysql
 import os
 from models.user_model import User
+from models.course_model import Course
 
 class DatabaseModel:
     def __init__(self, db_path=None):
@@ -15,7 +16,7 @@ class DatabaseModel:
         self.db_port = 3306
         self.db_name = "register"
         self.db_user = "root"
-        self.db_password = "root"
+        self.db_password = ""
 
         self.connection = None
         self.cursor = None
@@ -78,6 +79,7 @@ class DatabaseModel:
             return
 
         try:
+            # Tạo bảng users
             self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -89,6 +91,22 @@ class DatabaseModel:
                 running_time INT DEFAULT 0
             )
             ''')
+
+            # Tạo bảng courses (khóa học)
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS courses (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                url VARCHAR(255) NOT NULL,
+                current_lesson VARCHAR(255) DEFAULT '',
+                last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completion_time INT DEFAULT 0,
+                is_completed TINYINT DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            ''')
+
             self.connection.commit()
         except pymysql.MySQLError as e:
             print(f"Error creating tables: {e}")
@@ -242,3 +260,117 @@ class DatabaseModel:
         except pymysql.MySQLError as e:
             print(f"Error searching users: {e}")
             return []
+
+    # Course management methods
+    def get_courses_for_user(self, user_id):
+        """
+        Get all courses for a specific user
+
+        Args:
+            user_id (int): ID of the user
+
+        Returns:
+            list: List of Course objects
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot get courses")
+            return []
+
+        try:
+            self.cursor.execute("SELECT * FROM courses WHERE user_id = %s", (user_id,))
+            rows = self.cursor.fetchall()
+
+            courses = []
+            for row in rows:
+                course = Course(
+                    user_id=row['user_id'],
+                    name=row['name'],
+                    url=row['url'],
+                    current_lesson=row['current_lesson'],
+                    last_accessed=row['last_accessed'],
+                    course_id=row['id'],
+                    completion_time=row.get('completion_time', 0),
+                    is_completed=row.get('is_completed', 0)
+                )
+                courses.append(course)
+
+            return courses
+        except pymysql.MySQLError as e:
+            print(f"Error getting courses: {e}")
+            return []
+
+    def add_course(self, course):
+        """
+        Add a new course to the database
+
+        Args:
+            course (Course): Course object to add
+
+        Returns:
+            int: ID of the newly added course, or None if failed
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot add course")
+            return None
+
+        try:
+            self.cursor.execute(
+                "INSERT INTO courses (user_id, name, url, current_lesson, completion_time, is_completed) VALUES (%s, %s, %s, %s, %s, %s)",
+                (course.user_id, course.name, course.url, course.current_lesson, course.completion_time, course.is_completed)
+            )
+            self.connection.commit()
+            return self.cursor.lastrowid
+        except pymysql.MySQLError as e:
+            print(f"Error adding course: {e}")
+            self.connection.rollback()
+            return None
+
+    def update_course(self, course_id, course):
+        """
+        Update an existing course in the database
+
+        Args:
+            course_id (int): ID of the course to update
+            course (Course): Updated Course object
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot update course")
+            return False
+
+        try:
+            self.cursor.execute(
+                "UPDATE courses SET name=%s, url=%s, current_lesson=%s, completion_time=%s, is_completed=%s WHERE id=%s",
+                (course.name, course.url, course.current_lesson, course.completion_time, course.is_completed, course_id)
+            )
+            self.connection.commit()
+            return self.cursor.rowcount > 0
+        except pymysql.MySQLError as e:
+            print(f"Error updating course: {e}")
+            self.connection.rollback()
+            return False
+
+    def delete_course(self, course_id):
+        """
+        Delete a course from the database
+
+        Args:
+            course_id (int): ID of the course to delete
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot delete course")
+            return False
+
+        try:
+            self.cursor.execute("DELETE FROM courses WHERE id=%s", (course_id,))
+            self.connection.commit()
+            return self.cursor.rowcount > 0
+        except pymysql.MySQLError as e:
+            print(f"Error deleting course: {e}")
+            self.connection.rollback()
+            return False
