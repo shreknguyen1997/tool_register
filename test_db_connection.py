@@ -10,7 +10,7 @@ def test_mysql_connection():
     db_port = 3306
     db_name = "register"
     db_user = "root"
-    db_password = ""
+    db_password = "root"
 
     try:
         # First try to connect without specifying the database

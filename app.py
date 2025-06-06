@@ -520,19 +520,62 @@ class MainWindow(QWidget):
             time.sleep(3)
 
             # Tìm tất cả các bài học
-            lesson_elements = driver.find_elements(By.CSS_SELECTOR, ".lesson-item, .course-item, .slide-item")
+            lesson_elements = driver.find_elements(By.CSS_SELECTOR, ".lesson-item, .course-item, .slide-item, .chapter-item, .module-item, .unit-item")
 
             if not lesson_elements:
-                print("No lesson elements found")
+                print("No lesson elements found with standard selectors, trying alternative selectors...")
+                # Try alternative selectors for different course platforms
+                alternative_selectors = [
+                    "a[href*='lesson']", 
+                    "a[href*='module']", 
+                    "a[href*='chapter']", 
+                    "a[href*='unit']",
+                    "a[href*='lecture']",
+                    "div[role='button']",
+                    "li.course-item",
+                    ".course-content a",
+                    ".curriculum-item"
+                ]
+
+                for selector in alternative_selectors:
+                    lesson_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                    if lesson_elements:
+                        print(f"Found {len(lesson_elements)} elements with selector: {selector}")
+                        break
+
+                if not lesson_elements:
+                    print("Still no lesson elements found, trying to find any clickable elements...")
+                    # Last resort: find all links that might be lessons
+                    lesson_elements = driver.find_elements(By.TAG_NAME, "a")
+
+            if not lesson_elements:
+                print("No lesson elements found after all attempts")
                 return
 
-            print(f"Found {len(lesson_elements)} lesson elements")
+            print(f"Found {len(lesson_elements)} potential lesson elements")
 
             # Tìm bài học chưa hoàn thành đầu tiên
             incomplete_lesson = None
+            completion_indicators = ["completed", "done", "finished", "complete", "watched", "viewed"]
+
             for element in lesson_elements:
                 # Kiểm tra xem bài học đã hoàn thành chưa (thường có class hoặc icon đánh dấu)
-                is_completed = "completed" in element.get_attribute("class") or "done" in element.get_attribute("class")
+                element_class = element.get_attribute("class") or ""
+                element_text = element.text.lower()
+
+                is_completed = any(indicator in element_class.lower() for indicator in completion_indicators)
+
+                # Also check if there's a completion indicator in the text or child elements
+                if not is_completed:
+                    is_completed = any(indicator in element_text for indicator in completion_indicators)
+
+                # Check for completion icons in child elements
+                if not is_completed:
+                    try:
+                        check_icons = element.find_elements(By.CSS_SELECTOR, "i.fa-check, i.fa-check-circle, .icon-check, .complete-icon")
+                        is_completed = len(check_icons) > 0
+                    except:
+                        pass
 
                 if not is_completed:
                     incomplete_lesson = element
@@ -540,23 +583,40 @@ class MainWindow(QWidget):
 
             if incomplete_lesson:
                 print("Found incomplete lesson, clicking on it...")
-                # Click vào bài học chưa hoàn thành
-                incomplete_lesson.click()
+                try:
+                    # Try to scroll to the element first to make it visible
+                    driver.execute_script("arguments[0].scrollIntoView(true);", incomplete_lesson)
+                    time.sleep(1)  # Give time for the scroll to complete
 
-                # Lưu URL của bài học vào course
-                time.sleep(2)  # Đợi trang tải
-                current_url = driver.current_url
-                course.current_lesson = current_url
+                    # Click vào bài học chưa hoàn thành
+                    incomplete_lesson.click()
 
-                # Cập nhật course trong database
-                self.course_controller.update_course(
-                    course.id, 
-                    course.name, 
-                    course.url, 
-                    current_url
-                )
+                    # Lưu URL của bài học vào course
+                    time.sleep(2)  # Đợi trang tải
+                    current_url = driver.current_url
+                    course.current_lesson = current_url
 
-                print(f"Updated current lesson to: {current_url}")
+                    # Cập nhật course trong database
+                    self.course_controller.update_course(
+                        course.id, 
+                        course.name, 
+                        course.url, 
+                        current_url
+                    )
+
+                    print(f"Updated current lesson to: {current_url}")
+                except Exception as click_error:
+                    print(f"Error clicking on lesson: {click_error}")
+                    # Try alternative click methods
+                    try:
+                        driver.execute_script("arguments[0].click();", incomplete_lesson)
+                        time.sleep(2)
+                        current_url = driver.current_url
+                        course.current_lesson = current_url
+                        self.course_controller.update_course(course.id, course.name, course.url, current_url)
+                        print(f"Clicked using JavaScript, updated current lesson to: {current_url}")
+                    except Exception as js_error:
+                        print(f"JavaScript click also failed: {js_error}")
             else:
                 print("No incomplete lessons found")
 
@@ -873,23 +933,11 @@ class MainWindow(QWidget):
         dialog = AddUserDialog(self)
         if dialog.exec_():
             # Get user data
-            username, password, url, hours, course_url, completion_time = dialog.get_user_data()
+            username, password, url, hours, urls = dialog.get_user_data()
 
-            # Add user
-            success, message, user_id = self.user_controller.add_user(username, password, url, hours)
+            # Add user with multiple URLs
+            success, user_id, message = self.user_controller.add_user(username, password, url, hours, urls)
             if success:
-                # If course URL is provided, add a course for the user
-                if course_url:
-                    # Create a default course name based on the URL
-                    course_name = "Course from " + course_url.split("//")[-1].split("/")[0]
-
-                    # Add the course
-                    course_success, course_message, _ = self.course_controller.add_course(
-                        user_id, course_name, course_url, "", completion_time)
-
-                    if not course_success:
-                        QMessageBox.warning(self, "Warning", f"User added but failed to add course: {course_message}")
-
                 # Lấy lại danh sách từ database
                 self.users = self.user_controller.get_all_users()
                 self.update_user_list()
@@ -904,34 +952,12 @@ class MainWindow(QWidget):
             dialog = AddUserDialog(self, edit_mode=True, user=user)
             if dialog.exec_():
                 # Get user data
-                username, password, url, hours, course_url, completion_time = dialog.get_user_data()
+                username, password, url, hours, urls = dialog.get_user_data()
 
-                # Update user
-                success, message = self.user_controller.update_user(user.id, username, password, url, hours, user.status, user.running_time)
+                # Update user with multiple URLs
+                success, message = self.user_controller.update_user(
+                    user.id, username, password, url, hours, user.status, user.running_time, urls)
                 if success:
-                    # Get existing courses for this user
-                    courses = self.course_controller.get_courses_for_user(user.id)
-
-                    if course_url:
-                        if courses:
-                            # Update the first course
-                            course = courses[0]
-                            course_success, course_message = self.course_controller.update_course(
-                                course.id, course.name, course_url, course.current_lesson, completion_time)
-
-                            if not course_success:
-                                QMessageBox.warning(self, "Warning", f"User updated but failed to update course: {course_message}")
-                        else:
-                            # Create a default course name based on the URL
-                            course_name = "Course from " + course_url.split("//")[-1].split("/")[0]
-
-                            # Add a new course
-                            course_success, course_message, _ = self.course_controller.add_course(
-                                user.id, course_name, course_url, "", completion_time)
-
-                            if not course_success:
-                                QMessageBox.warning(self, "Warning", f"User updated but failed to add course: {course_message}")
-
                     # Lấy lại danh sách từ database
                     self.users = self.user_controller.get_all_users()
                     self.update_user_list()

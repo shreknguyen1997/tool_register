@@ -202,6 +202,14 @@ class LoginModel:
 
             if any(success_indicators):
                 print(f"Tài khoản {username} đăng nhập thành công!")
+
+                # Lưu URL hiện tại để có thể quay lại sau này nếu cần
+                original_url = driver.current_url
+
+                # Do not redirect to the primary URL (login URL) after successful login
+                # Stay on the current page after login
+                print(f"Đăng nhập thành công, đang ở trang: {original_url}")
+
                 return True
             else:
                 print(f"Tài khoản {username} đăng nhập thất bại.")

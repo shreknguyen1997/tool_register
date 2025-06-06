@@ -16,7 +16,7 @@ class DatabaseModel:
         self.db_port = 3306
         self.db_name = "register"
         self.db_user = "root"
-        self.db_password = ""
+        self.db_password = "root"
 
         self.connection = None
         self.cursor = None
@@ -92,6 +92,17 @@ class DatabaseModel:
             )
             ''')
 
+            # Tạo bảng user_urls để lưu trữ nhiều URL cho mỗi user
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_urls (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                url VARCHAR(255) NOT NULL,
+                hours INT DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            ''')
+
             # Tạo bảng courses (khóa học)
             self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS courses (
@@ -129,14 +140,19 @@ class DatabaseModel:
 
             users = []
             for row in rows:
+                # Get additional URLs for this user
+                user_id = row['id']
+                urls = self.get_urls_for_user(user_id)
+
                 user = User(
                     username=row['username'],
                     password=row['password'],
                     url=row['url'],
                     hours=row['hours'],
-                    user_id=row['id'],
+                    user_id=user_id,
                     status=row.get('status', 'stopped'),
-                    running_time=row.get('running_time', 0)
+                    running_time=row.get('running_time', 0),
+                    urls=urls
                 )
                 users.append(user)
 
@@ -238,21 +254,26 @@ class DatabaseModel:
         try:
             search_pattern = f"%{search_term}%"
             self.cursor.execute(
-                "SELECT * FROM users WHERE username LIKE %s OR url LIKE %s",
-                (search_pattern, search_pattern)
+                "SELECT u.* FROM users u LEFT JOIN user_urls uu ON u.id = uu.user_id WHERE u.username LIKE %s OR u.url LIKE %s OR uu.url LIKE %s",
+                (search_pattern, search_pattern, search_pattern)
             )
             rows = self.cursor.fetchall()
 
             users = []
             for row in rows:
+                # Get additional URLs for this user
+                user_id = row['id']
+                urls = self.get_urls_for_user(user_id)
+
                 user = User(
                     username=row['username'],
                     password=row['password'],
                     url=row['url'],
                     hours=row['hours'],
-                    user_id=row['id'],
+                    user_id=user_id,
                     status=row.get('status', 'stopped'),
-                    running_time=row.get('running_time', 0)
+                    running_time=row.get('running_time', 0),
+                    urls=urls
                 )
                 users.append(user)
 
@@ -372,5 +393,104 @@ class DatabaseModel:
             return self.cursor.rowcount > 0
         except pymysql.MySQLError as e:
             print(f"Error deleting course: {e}")
+            self.connection.rollback()
+            return False
+
+    # User URLs management methods
+    def get_urls_for_user(self, user_id):
+        """
+        Get all URLs for a specific user
+
+        Args:
+            user_id (int): ID of the user
+
+        Returns:
+            list: List of dictionaries with 'url' and 'hours' keys
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot get URLs")
+            return []
+
+        try:
+            self.cursor.execute("SELECT url, hours FROM user_urls WHERE user_id = %s", (user_id,))
+            rows = self.cursor.fetchall()
+
+            urls = [{'url': row['url'], 'hours': row['hours']} for row in rows]
+            return urls
+        except pymysql.MySQLError as e:
+            print(f"Error getting URLs: {e}")
+            return []
+
+    def add_url_for_user(self, user_id, url, hours=0):
+        """
+        Add a new URL for a user
+
+        Args:
+            user_id (int): ID of the user
+            url (str): URL to add
+            hours (int): Number of hours for this URL (default: 0)
+
+        Returns:
+            int: ID of the newly added URL, or None if failed
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot add URL")
+            return None
+
+        try:
+            self.cursor.execute(
+                "INSERT INTO user_urls (user_id, url, hours) VALUES (%s, %s, %s)",
+                (user_id, url, hours)
+            )
+            self.connection.commit()
+            return self.cursor.lastrowid
+        except pymysql.MySQLError as e:
+            print(f"Error adding URL: {e}")
+            self.connection.rollback()
+            return None
+
+    def delete_url_for_user(self, url_id):
+        """
+        Delete a URL for a user
+
+        Args:
+            url_id (int): ID of the URL to delete
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot delete URL")
+            return False
+
+        try:
+            self.cursor.execute("DELETE FROM user_urls WHERE id=%s", (url_id,))
+            self.connection.commit()
+            return self.cursor.rowcount > 0
+        except pymysql.MySQLError as e:
+            print(f"Error deleting URL: {e}")
+            self.connection.rollback()
+            return False
+
+    def delete_all_urls_for_user(self, user_id):
+        """
+        Delete all URLs for a user
+
+        Args:
+            user_id (int): ID of the user
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connection or not self.cursor:
+            print("Database connection not available, cannot delete URLs")
+            return False
+
+        try:
+            self.cursor.execute("DELETE FROM user_urls WHERE user_id=%s", (user_id,))
+            self.connection.commit()
+            return True
+        except pymysql.MySQLError as e:
+            print(f"Error deleting URLs: {e}")
             self.connection.rollback()
             return False

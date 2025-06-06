@@ -39,15 +39,16 @@ class UserController:
         """
         return self.db_model.search_users(search_term)
 
-    def add_user(self, username, password, url, hours):
+    def add_user(self, username, password, url, hours, urls=None):
         """
         Add a new user to the database
 
         Args:
             username (str): Username
             password (str): Password
-            url (str): URL
+            url (str): Primary URL
             hours (int): Hours
+            urls (list, optional): List of additional URLs
 
         Returns:
             tuple: (success, user_id, message)
@@ -57,17 +58,23 @@ class UserController:
             return False, None, "All fields except hours must be filled!"
 
         # Create user object
-        new_user = User(username, password, url, hours)
+        new_user = User(username, password, url, hours, urls=urls)
 
         # Add to database
         user_id = self.db_model.add_user(new_user)
 
         if user_id:
+            # Add additional URLs to the user_urls table
+            if urls:
+                for additional_url in urls:
+                    if additional_url != url:  # Skip the primary URL as it's already in the users table
+                        self.db_model.add_url_for_user(user_id, additional_url)
+
             return True, user_id, f"User {username} added successfully!"
         else:
             return False, None, "Failed to add user to database!"
 
-    def update_user(self, user_id, username, password, url, hours, status="stopped", running_time=0):
+    def update_user(self, user_id, username, password, url, hours, status="stopped", running_time=0, urls=None):
         """
         Update an existing user in the database
 
@@ -75,10 +82,11 @@ class UserController:
             user_id (int): ID of the user to update
             username (str): Updated username
             password (str): Updated password
-            url (str): Updated URL
+            url (str): Updated primary URL
             hours (int): Updated hours
             status (str): User status (running/stopped)
             running_time (int): How long the user has been running in seconds
+            urls (list, optional): List of updated URLs
 
         Returns:
             tuple: (success, message)
@@ -88,10 +96,19 @@ class UserController:
             return False, "All fields except hours must be filled!"
 
         # Create updated user object
-        updated_user = User(username, password, url, hours, user_id, status, running_time)
+        updated_user = User(username, password, url, hours, user_id, status, running_time, urls=urls)
 
         # Update in database
         if self.db_model.update_user(user_id, updated_user):
+            # Delete all existing URLs for this user
+            self.db_model.delete_all_urls_for_user(user_id)
+
+            # Add updated URLs to the user_urls table
+            if urls:
+                for additional_url in urls:
+                    if additional_url != url:  # Skip the primary URL as it's already in the users table
+                        self.db_model.add_url_for_user(user_id, additional_url)
+
             return True, f"User {username} updated successfully!"
         else:
             return False, "Failed to update user in database!"
