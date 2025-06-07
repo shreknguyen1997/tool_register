@@ -519,67 +519,170 @@ class MainWindow(QWidget):
             # Đợi trang tải xong
             time.sleep(3)
 
-            # Tìm tất cả các bài học
-            lesson_elements = driver.find_elements(By.CSS_SELECTOR, ".lesson-item, .course-item, .slide-item, .chapter-item, .module-item, .unit-item")
+            # COMPLETELY NEW APPROACH: Directly find all li elements and check their content
+            print("Using new approach: Directly finding li elements and checking their content")
+            try:
+                # Use the specific XPath provided in the issue description to get all li elements
+                li_elements = driver.find_elements(By.XPATH, "//*[@id=\"home\"]/div/ul/li/ul/li")
+                print(f"Found {len(li_elements)} li elements using the specific XPath")
 
-            if not lesson_elements:
-                print("No lesson elements found with standard selectors, trying alternative selectors...")
-                # Try alternative selectors for different course platforms
-                alternative_selectors = [
-                    "a[href*='lesson']", 
-                    "a[href*='module']", 
-                    "a[href*='chapter']", 
-                    "a[href*='unit']",
-                    "a[href*='lecture']",
-                    "div[role='button']",
-                    "li.course-item",
-                    ".course-content a",
-                    ".curriculum-item"
-                ]
+                # Process each li element to find those with less than 50% completion
+                for li in li_elements:
+                    try:
+                        # Get the li text and extract any information
+                        li_text = li.text.strip()
+                        print(f"Li text: '{li_text}'")
 
-                for selector in alternative_selectors:
-                    lesson_elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                    if lesson_elements:
-                        print(f"Found {len(lesson_elements)} elements with selector: {selector}")
-                        break
+                        # Try to find a span element within the li
+                        span_elements = li.find_elements(By.TAG_NAME, "span")
+
+                        completion_percentage = 0  # Default to 0%
+                        span_text = ""
+
+                        # Check each span for progress information
+                        for span in span_elements:
+                            try:
+                                span_text = span.text.strip()
+                                print(f"Span text within li: '{span_text}'")
+
+                                # Look for percentage pattern in the span text
+                                import re
+                                percentage_match = re.search(r'(\d+)\s*%', span_text)
+                                if percentage_match:
+                                    completion_percentage = int(percentage_match.group(1))
+                                    print(f"Found completion percentage in span: {completion_percentage}%")
+                                    break
+                            except Exception as e:
+                                print(f"Error processing span within li: {e}")
+
+                        # If no span found or no percentage in span, try to extract from li text directly
+                        if completion_percentage == 0:
+                            percentage_match = re.search(r'(\d+)\s*%', li_text)
+                            if percentage_match:
+                                completion_percentage = int(percentage_match.group(1))
+                                print(f"Found completion percentage in li text: {completion_percentage}%")
+
+                        # Check if the completion percentage is less than 50%
+                        if completion_percentage < 50:
+                            print(f"Found li with <50% completion: {li_text}, Completion: {completion_percentage}%")
+
+                            # Try to find an anchor element within the li
+                            try:
+                                # First try to find a direct child anchor
+                                anchors = li.find_elements(By.TAG_NAME, "a")
+
+                                # If no direct child anchors, try to find any descendant anchor
+                                if not anchors:
+                                    anchors = li.find_elements(By.XPATH, ".//a")
+
+                                if anchors:
+                                    anchor = anchors[0]  # Use the first anchor found
+                                    lesson_url = anchor.get_attribute("href")
+                                    lesson_title = li_text
+                                    if span_text:
+                                        lesson_title = li_text.replace(span_text, "").strip()  # Remove span text from li text
+
+                                    print(f"Found lesson with <50% completion: {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
+
+                                    # We found an incomplete lesson, use it
+                                    incomplete_lesson = anchor
+                                    break
+                                else:
+                                    print(f"No anchor found in li with <50% completion")
+
+                                    # Try to find an anchor in the parent element
+                                    try:
+                                        parent = li.find_element(By.XPATH, "./..")
+                                        parent_anchors = parent.find_elements(By.TAG_NAME, "a")
+
+                                        if parent_anchors:
+                                            anchor = parent_anchors[0]
+                                            lesson_url = anchor.get_attribute("href")
+                                            lesson_title = li_text
+                                            if span_text:
+                                                lesson_title = li_text.replace(span_text, "").strip()
+
+                                            print(f"Found lesson with <50% completion (via parent): {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
+
+                                            # We found an incomplete lesson, use it
+                                            incomplete_lesson = anchor
+                                            break
+                                    except Exception as e:
+                                        print(f"Error finding anchor in parent: {e}")
+                            except Exception as e:
+                                print(f"Error finding anchor in li: {e}")
+                    except Exception as e:
+                        print(f"Error processing li element: {e}")
+
+                # If we found an incomplete lesson, we'll use it
+                if incomplete_lesson:
+                    print("Found incomplete lesson using the new approach")
+            except Exception as e:
+                print(f"Error with new approach: {e}")
+                print("Falling back to original approach")
+
+            # If we didn't find an incomplete lesson with the new approach, try the original approach
+            if not incomplete_lesson:
+                # Tìm tất cả các bài học
+                lesson_elements = driver.find_elements(By.CSS_SELECTOR, ".lesson-item, .course-item, .slide-item, .chapter-item, .module-item, .unit-item")
 
                 if not lesson_elements:
-                    print("Still no lesson elements found, trying to find any clickable elements...")
-                    # Last resort: find all links that might be lessons
-                    lesson_elements = driver.find_elements(By.TAG_NAME, "a")
+                    print("No lesson elements found with standard selectors, trying alternative selectors...")
+                    # Try alternative selectors for different course platforms
+                    alternative_selectors = [
+                        "a[href*='lesson']", 
+                        "a[href*='module']", 
+                        "a[href*='chapter']", 
+                        "a[href*='unit']",
+                        "a[href*='lecture']",
+                        "div[role='button']",
+                        "li.course-item",
+                        ".course-content a",
+                        ".curriculum-item"
+                    ]
 
-            if not lesson_elements:
-                print("No lesson elements found after all attempts")
-                return
+                    for selector in alternative_selectors:
+                        lesson_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                        if lesson_elements:
+                            print(f"Found {len(lesson_elements)} elements with selector: {selector}")
+                            break
 
-            print(f"Found {len(lesson_elements)} potential lesson elements")
+                    if not lesson_elements:
+                        print("Still no lesson elements found, trying to find any clickable elements...")
+                        # Last resort: find all links that might be lessons
+                        lesson_elements = driver.find_elements(By.TAG_NAME, "a")
 
-            # Tìm bài học chưa hoàn thành đầu tiên
-            incomplete_lesson = None
-            completion_indicators = ["completed", "done", "finished", "complete", "watched", "viewed"]
+                if not lesson_elements:
+                    print("No lesson elements found after all attempts")
+                    return
 
-            for element in lesson_elements:
-                # Kiểm tra xem bài học đã hoàn thành chưa (thường có class hoặc icon đánh dấu)
-                element_class = element.get_attribute("class") or ""
-                element_text = element.text.lower()
+                print(f"Found {len(lesson_elements)} potential lesson elements")
 
-                is_completed = any(indicator in element_class.lower() for indicator in completion_indicators)
+                # Tìm bài học chưa hoàn thành đầu tiên
+                completion_indicators = ["completed", "done", "finished", "complete", "watched", "viewed"]
 
-                # Also check if there's a completion indicator in the text or child elements
-                if not is_completed:
-                    is_completed = any(indicator in element_text for indicator in completion_indicators)
+                for element in lesson_elements:
+                    # Kiểm tra xem bài học đã hoàn thành chưa (thường có class hoặc icon đánh dấu)
+                    element_class = element.get_attribute("class") or ""
+                    element_text = element.text.lower()
 
-                # Check for completion icons in child elements
-                if not is_completed:
-                    try:
-                        check_icons = element.find_elements(By.CSS_SELECTOR, "i.fa-check, i.fa-check-circle, .icon-check, .complete-icon")
-                        is_completed = len(check_icons) > 0
-                    except:
-                        pass
+                    is_completed = any(indicator in element_class.lower() for indicator in completion_indicators)
 
-                if not is_completed:
-                    incomplete_lesson = element
-                    break
+                    # Also check if there's a completion indicator in the text or child elements
+                    if not is_completed:
+                        is_completed = any(indicator in element_text for indicator in completion_indicators)
+
+                    # Check for completion icons in child elements
+                    if not is_completed:
+                        try:
+                            check_icons = element.find_elements(By.CSS_SELECTOR, "i.fa-check, i.fa-check-circle, .icon-check, .complete-icon")
+                            is_completed = len(check_icons) > 0
+                        except:
+                            pass
+
+                    if not is_completed:
+                        incomplete_lesson = element
+                        break
 
             if incomplete_lesson:
                 print("Found incomplete lesson, clicking on it...")

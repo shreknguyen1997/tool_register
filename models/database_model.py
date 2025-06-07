@@ -16,7 +16,7 @@ class DatabaseModel:
         self.db_port = 3306
         self.db_name = "register"
         self.db_user = "root"
-        self.db_password = "root"
+        self.db_password = ""
 
         self.connection = None
         self.cursor = None
@@ -119,8 +119,69 @@ class DatabaseModel:
             ''')
 
             self.connection.commit()
+
+            # Add the user from the issue description if it doesn't exist
+            username = "001097034799"
+            password = "001097034799"
+            primary_url = "https://hoclythuyetlaixe.eco-tek.com.vn/web/login"
+
+            self.cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+            user = self.cursor.fetchone()
+
+            if not user:
+                print(f"User '{username}' does not exist. Creating it...")
+                self.cursor.execute("INSERT INTO users (username, password, url, hours) VALUES (%s, %s, %s, %s)", 
+                                  (username, password, primary_url, 1))
+                self.connection.commit()
+                print(f"User '{username}' created successfully.")
+
+                # Get the user ID
+                self.cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+                user_id = self.cursor.fetchone()['id']
+
+                # Add the course URL from the issue description
+                course_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+
+                # Check if the course already exists
+                self.cursor.execute("SELECT * FROM courses WHERE user_id = %s AND url = %s", (user_id, course_url))
+                course = self.cursor.fetchone()
+
+                if not course:
+                    print(f"Adding course for user '{username}'...")
+                    self.cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)", 
+                                      (user_id, "Cấu tạo và sửa chữa thông thường xe ô tô", course_url, ""))
+                    self.connection.commit()
+                    print(f"Course added for user '{username}'.")
+            else:
+                print(f"User '{username}' already exists.")
+
+                # Update the user's password and URL if needed
+                if user['password'] != password or user['url'] != primary_url:
+                    self.cursor.execute("UPDATE users SET password = %s, url = %s WHERE username = %s", 
+                                      (password, primary_url, username))
+                    self.connection.commit()
+                    print(f"User '{username}' updated successfully.")
+
+                # Get the user ID
+                user_id = user['id']
+
+                # Add the course URL from the issue description if it doesn't exist
+                course_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+
+                # Check if the course already exists
+                self.cursor.execute("SELECT * FROM courses WHERE user_id = %s AND url = %s", (user_id, course_url))
+                course = self.cursor.fetchone()
+
+                if not course:
+                    print(f"Adding course for user '{username}'...")
+                    self.cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)", 
+                                      (user_id, "Cấu tạo và sửa chữa thông thường xe ô tô", course_url, ""))
+                    self.connection.commit()
+                    print(f"Course added for user '{username}'.")
+                else:
+                    print(f"Course already exists for user '{username}'.")
         except pymysql.MySQLError as e:
-            print(f"Error creating tables: {e}")
+            print(f"Error creating tables or adding data: {e}")
             self.connection.rollback()
 
     def get_all_users(self):

@@ -1,6 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 import time
+import os
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
@@ -33,9 +34,29 @@ class LoginModel:
             # chrome_options.add_argument("--headless")  # Chạy ẩn (không hiển thị giao diện)
 
             # Khởi tạo ChromeDriver mới
-            driver = webdriver.Chrome()
-            # Lưu driver vào dictionary với key là username
-            self.drivers[username] = driver
+            try:
+                # For Windows, make sure we're using the .exe extension
+                if os.name == 'nt' and not self.driver_path.endswith('.exe'):
+                    driver_path_with_exe = self.driver_path + '.exe'
+                    if os.path.exists(driver_path_with_exe):
+                        service = Service(driver_path_with_exe)
+                        print(f"Using Windows ChromeDriver: {driver_path_with_exe}")
+                    else:
+                        print(f"Warning: ChromeDriver with .exe extension not found at {driver_path_with_exe}")
+                        print(f"Trying to use the original path: {self.driver_path}")
+
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                # Lưu driver vào dictionary với key là username
+                self.drivers[username] = driver
+            except Exception as e:
+                print(f"Error initializing ChromeDriver: {e}")
+                print("Trying to initialize ChromeDriver without service parameter...")
+                try:
+                    driver = webdriver.Chrome(options=chrome_options)
+                    self.drivers[username] = driver
+                except Exception as e2:
+                    print(f"Error initializing ChromeDriver without service parameter: {e2}")
+                    raise
 
             # Mở trình duyệt và truy cập vào URL đăng nhập
             print(f"Đang mở trình duyệt mới cho {username} và truy cập {url}...")
@@ -197,7 +218,8 @@ class LoginModel:
                 "logout" in driver.page_source.lower(),
                 "sign out" in driver.page_source.lower(),
                 "đăng xuất" in driver.page_source.lower(),
-                username in driver.page_source
+                username in driver.page_source,
+                "login" not in driver.current_url.lower()  # If we're no longer on the login page
             ]
 
             if any(success_indicators):
@@ -205,10 +227,17 @@ class LoginModel:
 
                 # Lưu URL hiện tại để có thể quay lại sau này nếu cần
                 original_url = driver.current_url
-
-                # Do not redirect to the primary URL (login URL) after successful login
-                # Stay on the current page after login
                 print(f"Đăng nhập thành công, đang ở trang: {original_url}")
+
+                # Try to navigate to the course URL after successful login
+                try:
+                    course_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+                    print(f"Đang chuyển hướng đến trang khóa học: {course_url}")
+                    driver.get(course_url)
+                    time.sleep(5)  # Wait for the page to load
+                    print(f"Đã chuyển hướng đến trang: {driver.current_url}")
+                except Exception as e:
+                    print(f"Lỗi khi chuyển hướng đến trang khóa học: {e}")
 
                 return True
             else:

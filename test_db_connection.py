@@ -10,7 +10,7 @@ def test_mysql_connection():
     db_port = 3306
     db_name = "register"
     db_user = "root"
-    db_password = "root"
+    db_password = ""
 
     try:
         # First try to connect without specifying the database
@@ -50,10 +50,28 @@ def test_mysql_connection():
                 username VARCHAR(255) NOT NULL,
                 password VARCHAR(255) NOT NULL,
                 url VARCHAR(255) NOT NULL,
-                hours INT DEFAULT 0
+                hours INT DEFAULT 0,
+                status VARCHAR(50) DEFAULT 'stopped',
+                running_time INT DEFAULT 0
             )
             ''')
             print("Table 'users' created successfully.")
+        else:
+            # Check if status column exists
+            cursor.execute("SHOW COLUMNS FROM users LIKE 'status'")
+            status_exists = cursor.fetchone()
+            if not status_exists:
+                print("Adding 'status' column to users table...")
+                cursor.execute("ALTER TABLE users ADD COLUMN status VARCHAR(50) DEFAULT 'stopped'")
+                print("Added 'status' column successfully.")
+
+            # Check if running_time column exists
+            cursor.execute("SHOW COLUMNS FROM users LIKE 'running_time'")
+            running_time_exists = cursor.fetchone()
+            if not running_time_exists:
+                print("Adding 'running_time' column to users table...")
+                cursor.execute("ALTER TABLE users ADD COLUMN running_time INT DEFAULT 0")
+                print("Added 'running_time' column successfully.")
 
         # Create a cursor
         cursor = connection.cursor()
@@ -73,6 +91,38 @@ def test_mysql_connection():
             columns = cursor.fetchall()
             for column in columns:
                 print(f"  - {column['Field']} ({column['Type']})")
+
+        # Check if the user with the specified credentials exists
+        username = "001097034799"
+        password = "001097034799"
+        primary_url = "https://hoclythuyetlaixe.eco-tek.com.vn/web/login"
+
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+
+        if user:
+            print(f"User '{username}' already exists. Updating password and URL...")
+            cursor.execute("UPDATE users SET password = %s, url = %s WHERE username = %s", 
+                          (password, primary_url, username))
+            connection.commit()
+            print(f"User '{username}' updated successfully.")
+        else:
+            print(f"User '{username}' does not exist. Creating it...")
+            cursor.execute("INSERT INTO users (username, password, url, hours) VALUES (%s, %s, %s, %s)", 
+                          (username, password, primary_url, 1))
+            connection.commit()
+            print(f"User '{username}' created successfully.")
+
+            # Get the user ID
+            cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+            user_id = cursor.fetchone()['id']
+
+            # Add a course for the user
+            course_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+            cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)", 
+                          (user_id, "Cấu tạo và sửa chữa thông thường xe ô tô", course_url, ""))
+            connection.commit()
+            print(f"Course added for user '{username}'.")
 
         # Close the connection
         connection.close()
