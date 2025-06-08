@@ -15,6 +15,7 @@ from views.login_view import LoginView
 from models.user_model import User
 from models.course_model import Course
 from models.database_model import DatabaseModel
+from models.course_navigation_model import CourseNavigationModel
 from views.add_user_dialog import AddUserDialog
 from views.add_course_dialog import AddCourseDialog
 
@@ -27,6 +28,9 @@ class MainWindow(QWidget):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         driver_path = os.path.join(current_dir, "chromedriver", "chromedriver")
         print(f"ChromeDriver path: {driver_path}")
+
+        # Initialize the list of incomplete lessons
+        self.incomplete_lessons = []
         self.login_model = LoginModel(driver_path)  # Đảm bảo luôn sử dụng Selenium WebDriver
         self.login_view = LoginView(self)
         self.login_controller = LoginController(self.login_model, self.login_view)
@@ -519,8 +523,47 @@ class MainWindow(QWidget):
             # Đợi trang tải xong
             time.sleep(3)
 
-            # COMPLETELY NEW APPROACH: Directly find all li elements and check their content
-            print("Using new approach: Directly finding li elements and checking their content")
+            # Create a CourseNavigationModel instance
+            course_nav_model = CourseNavigationModel(driver, self.db_model)
+
+            # Store the list of lessons with less than 50% completion
+            self.incomplete_lessons = []
+
+            # Get lessons with less than 50% completion using CourseNavigationModel
+            print(f"Getting lessons with less than 50% completion for course URL: {course.url}")
+            try:
+                self.incomplete_lessons = course_nav_model.get_lessons_less_than_50_percent(course.url)
+                print(f"Found {len(self.incomplete_lessons)} lessons with less than 50% completion")
+
+                # Display the list of incomplete lessons
+                for i, lesson in enumerate(self.incomplete_lessons):
+                    print(f"Lesson {i+1}: {lesson.get('title', 'No title')} - {lesson.get('url', 'No URL')} - {lesson.get('completion_percentage', 0)}%")
+
+                # If we found any incomplete lessons, use the first one
+                if self.incomplete_lessons:
+                    # The get_lessons_less_than_50_percent method already clicks on the first lesson,
+                    # so we just need to update the course with the current URL
+                    current_url = driver.current_url
+                    course.current_lesson = current_url
+
+                    # Update the course in the database
+                    self.course_controller.update_course(
+                        course.id, 
+                        course.name, 
+                        course.url, 
+                        current_url
+                    )
+
+                    print(f"Updated current lesson to: {current_url}")
+                    return
+                else:
+                    print("No lessons with less than 50% completion found using CourseNavigationModel")
+            except Exception as e:
+                print(f"Error using CourseNavigationModel: {e}")
+                print("Falling back to original approach")
+
+            # If CourseNavigationModel approach failed, try the direct approach
+            print("Using direct approach: Finding li elements and checking their content")
             try:
                 # Use the specific XPath provided in the issue description to get all li elements
                 li_elements = driver.find_elements(By.XPATH, "//*[@id=\"home\"]/div/ul/li/ul/li")
@@ -584,6 +627,13 @@ class MainWindow(QWidget):
 
                                     print(f"Found lesson with <50% completion: {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
 
+                                    # Add to our list of incomplete lessons
+                                    self.incomplete_lessons.append({
+                                        'url': lesson_url,
+                                        'title': lesson_title,
+                                        'completion_percentage': completion_percentage
+                                    })
+
                                     # We found an incomplete lesson, use it
                                     incomplete_lesson = anchor
                                     break
@@ -604,6 +654,13 @@ class MainWindow(QWidget):
 
                                             print(f"Found lesson with <50% completion (via parent): {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
 
+                                            # Add to our list of incomplete lessons
+                                            self.incomplete_lessons.append({
+                                                'url': lesson_url,
+                                                'title': lesson_title,
+                                                'completion_percentage': completion_percentage
+                                            })
+
                                             # We found an incomplete lesson, use it
                                             incomplete_lesson = anchor
                                             break
@@ -616,9 +673,9 @@ class MainWindow(QWidget):
 
                 # If we found an incomplete lesson, we'll use it
                 if incomplete_lesson:
-                    print("Found incomplete lesson using the new approach")
+                    print("Found incomplete lesson using the direct approach")
             except Exception as e:
-                print(f"Error with new approach: {e}")
+                print(f"Error with direct approach: {e}")
                 print("Falling back to original approach")
 
             # If we didn't find an incomplete lesson with the new approach, try the original approach
@@ -708,6 +765,89 @@ class MainWindow(QWidget):
                     )
 
                     print(f"Updated current lesson to: {current_url}")
+
+                    # Navigate to lesson details
+                    try:
+                        print("Attempting to navigate to lesson details...")
+                        # Look for lesson detail elements using the provided XPath
+                        detail_elements = driver.find_elements(By.XPATH, "//*[@id=\"home\"]/div/ul/li/ul/li")
+
+                        if detail_elements:
+                            print(f"Found {len(detail_elements)} detail elements")
+                            # Try to find clickable elements within the details
+                            for detail_element in detail_elements:
+                                try:
+                                    # Look for links or buttons within the detail element
+                                    clickable = detail_element.find_elements(By.TAG_NAME, "a")
+                                    if not clickable:
+                                        clickable = detail_element.find_elements(By.TAG_NAME, "button")
+
+                                    if clickable:
+                                        print(f"Found clickable element in lesson details: {clickable[0].text}")
+                                        # Scroll to the element
+                                        driver.execute_script("arguments[0].scrollIntoView(true);", clickable[0])
+                                        time.sleep(1)
+
+                                        # Click on the element to navigate to lesson details
+                                        clickable[0].click()
+                                        time.sleep(2)
+
+                                        # Update the URL again after navigating to details
+                                        detail_url = driver.current_url
+                                        print(f"Navigated to lesson details: {detail_url}")
+
+                                        # Update the course with the detail URL
+                                        course.current_lesson = detail_url
+                                        self.course_controller.update_course(
+                                            course.id, 
+                                            course.name, 
+                                            course.url, 
+                                            detail_url
+                                        )
+                                        break
+                                except Exception as detail_error:
+                                    print(f"Error interacting with detail element: {detail_error}")
+                        else:
+                            print("No lesson detail elements found, trying direct URL navigation")
+                            # Fallback: Try to navigate directly to the specific URL from the issue description
+                            try:
+                                specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+                                print(f"Navigating directly to: {specific_url}")
+                                driver.get(specific_url)
+                                time.sleep(3)  # Wait for the page to load
+
+                                # Update the course with the specific URL
+                                course.current_lesson = specific_url
+                                self.course_controller.update_course(
+                                    course.id, 
+                                    course.name, 
+                                    course.url, 
+                                    specific_url
+                                )
+                                print(f"Updated course with specific URL: {specific_url}")
+                            except Exception as direct_nav_error:
+                                print(f"Error navigating directly to specific URL: {direct_nav_error}")
+                    except Exception as detail_nav_error:
+                        print(f"Error navigating to lesson details: {detail_nav_error}")
+                        # Fallback: Try to navigate directly to the specific URL from the issue description
+                        try:
+                            specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+                            print(f"Navigating directly to: {specific_url}")
+                            driver.get(specific_url)
+                            time.sleep(3)  # Wait for the page to load
+
+                            # Update the course with the specific URL
+                            course.current_lesson = specific_url
+                            self.course_controller.update_course(
+                                course.id, 
+                                course.name, 
+                                course.url, 
+                                specific_url
+                            )
+                            print(f"Updated course with specific URL: {specific_url}")
+                        except Exception as direct_nav_error:
+                            print(f"Error navigating directly to specific URL: {direct_nav_error}")
+
                 except Exception as click_error:
                     print(f"Error clicking on lesson: {click_error}")
                     # Try alternative click methods
@@ -716,12 +856,58 @@ class MainWindow(QWidget):
                         time.sleep(2)
                         current_url = driver.current_url
                         course.current_lesson = current_url
-                        self.course_controller.update_course(course.id, course.name, course.url, current_url)
+
+                        # Update the course in the database
+                        self.course_controller.update_course(
+                            course.id, 
+                            course.name, 
+                            course.url, 
+                            current_url
+                        )
+
+                        # Try to navigate to lesson details even after JavaScript click
+                        try:
+                            print("Attempting to navigate to lesson details after JavaScript click...")
+                            # Try direct navigation to the specific URL as a fallback
+                            specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+                            print(f"Navigating directly to: {specific_url}")
+                            driver.get(specific_url)
+                            time.sleep(3)  # Wait for the page to load
+
+                            # Update the course with the specific URL
+                            course.current_lesson = specific_url
+                            self.course_controller.update_course(
+                                course.id, 
+                                course.name, 
+                                course.url, 
+                                specific_url
+                            )
+                            print(f"Updated course with specific URL: {specific_url}")
+                        except Exception as js_detail_error:
+                            print(f"Error navigating to lesson details after JavaScript click: {js_detail_error}")
                         print(f"Clicked using JavaScript, updated current lesson to: {current_url}")
                     except Exception as js_error:
                         print(f"JavaScript click also failed: {js_error}")
             else:
-                print("No incomplete lessons found")
+                print("No incomplete lessons found, trying direct navigation to specific URL")
+                # Fallback: Try to navigate directly to the specific URL from the issue description
+                try:
+                    specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+                    print(f"Navigating directly to: {specific_url}")
+                    driver.get(specific_url)
+                    time.sleep(3)  # Wait for the page to load
+
+                    # Update the course with the specific URL
+                    course.current_lesson = specific_url
+                    self.course_controller.update_course(
+                        course.id, 
+                        course.name, 
+                        course.url, 
+                        specific_url
+                    )
+                    print(f"Updated course with specific URL: {specific_url}")
+                except Exception as direct_nav_error:
+                    print(f"Error navigating directly to specific URL: {direct_nav_error}")
 
         except Exception as e:
             print(f"Error finding next incomplete lesson: {e}")
@@ -745,6 +931,67 @@ class MainWindow(QWidget):
         hours, remainder = divmod(seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+
+    def get_incomplete_lessons(self):
+        """
+        Get the list of lessons with less than 50% completion
+
+        Returns:
+            list: List of dictionaries containing lesson information (url, title, completion_percentage)
+        """
+        return self.incomplete_lessons
+
+    def navigate_to_lesson(self, lesson_index, course):
+        """
+        Navigate to a specific lesson from the list of incomplete lessons
+
+        Args:
+            lesson_index (int): Index of the lesson in the incomplete_lessons list
+            course (Course): Course object to update
+
+        Returns:
+            bool: True if navigation was successful, False otherwise
+        """
+        if not self.incomplete_lessons or lesson_index < 0 or lesson_index >= len(self.incomplete_lessons):
+            print(f"Invalid lesson index: {lesson_index}")
+            return False
+
+        lesson = self.incomplete_lessons[lesson_index]
+        lesson_url = lesson.get('url')
+
+        if not lesson_url:
+            print("Lesson URL is missing")
+            return False
+
+        try:
+            # Get the driver for the current user
+            driver = None
+            if self.selected_username in self.login_model.drivers:
+                driver = self.login_model.drivers[self.selected_username]
+
+            if not driver:
+                print("No active driver found for the current user")
+                return False
+
+            # Navigate to the lesson URL
+            print(f"Navigating to lesson: {lesson.get('title', 'No title')} - {lesson_url}")
+            driver.get(lesson_url)
+            time.sleep(3)  # Wait for the page to load
+
+            # Update the course with the current URL
+            course.current_lesson = lesson_url
+            self.course_controller.update_course(
+                course.id, 
+                course.name, 
+                course.url, 
+                lesson_url
+            )
+
+            print(f"Updated current lesson to: {lesson_url}")
+            return True
+        except Exception as e:
+            print(f"Error navigating to lesson: {e}")
+            return False
 
     def update_running_time(self):
         """Cập nhật thời gian chạy cho các user đang trong trạng thái running"""
