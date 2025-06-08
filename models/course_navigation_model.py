@@ -416,7 +416,8 @@ class CourseNavigationModel:
 
     def navigate_to_next_lesson(self, current_lesson_url):
         """
-        Navigate to the next lesson after the current one
+        Navigate to the next lesson after the current one.
+        If the next lesson is already completed, continue to the next lesson again.
 
         Args:
             current_lesson_url (str): URL of the current lesson
@@ -430,55 +431,34 @@ class CourseNavigationModel:
                 self.driver.get(current_lesson_url)
                 time.sleep(3)  # Wait for page to load
 
-            # Look for next lesson button using the specific XPath provided
-            try:
-                # Use the specific XPath provided in the issue description
-                next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
-                print("Found next button using the specific XPath")
-                next_buttons = [next_button]
-            except NoSuchElementException:
-                print("Specific XPath for next button not found, trying alternatives...")
-                # Fall back to alternative selectors if the specific XPath doesn't work
-                next_buttons = []
-
-                # Try various selectors that might indicate a "next" button
-                selectors = [
-                    "//a[contains(text(), 'Next') or contains(text(), 'next') or contains(text(), 'Tiếp theo')]",
-                    "//button[contains(text(), 'Next') or contains(text(), 'next') or contains(text(), 'Tiếp theo')]",
-                    "//a[contains(@class, 'next')]",
-                    "//button[contains(@class, 'next')]",
-                    "//a[contains(@title, 'Next') or contains(@title, 'next') or contains(@title, 'Tiếp theo')]",
-                    "//i[contains(@class, 'fa-arrow-right')]/parent::a",
-                    "//i[contains(@class, 'fa-chevron-right')]/parent::a"
-                ]
-
-                for selector in selectors:
-                    try:
-                        elements = self.driver.find_elements(By.XPATH, selector)
-                        next_buttons.extend(elements)
-                    except:
-                        continue
-
-            if next_buttons:
-                # Click the first "next" button found
-                next_url = next_buttons[0].get_attribute('href')
-                print(f"Found next lesson button. URL: {next_url}")
-                next_buttons[0].click()
-                time.sleep(3)  # Wait for page to load
-
-                # Return the URL of the next lesson
-                return self.driver.current_url
-            else:
-                print("No next lesson button found")
+            # First, click the next button to go to the next lesson
+            next_lesson_url = self._click_next_button()
+            if not next_lesson_url:
                 return None
 
+            # Check if the next lesson is already completed
+            max_attempts = 5  # Limit the number of automatic next clicks to avoid infinite loops
+            attempts = 0
+
+            while attempts < max_attempts and self._is_lesson_completed():
+                print("[LESSON STATUS] Next lesson is already completed, clicking next again")
+                next_lesson_url = self._click_next_button()
+                if not next_lesson_url:
+                    break
+                attempts += 1
+
+            if attempts >= max_attempts:
+                print(f"[LESSON STATUS] Reached maximum number of automatic next clicks ({max_attempts})")
+
+            return next_lesson_url
+
         except Exception as e:
-            print(f"Error navigating to next lesson: {e}")
+            print(f"[LESSON STATUS] Error navigating to next lesson: {e}")
             return None
 
     def wait_for_lesson_completion(self, completion_time):
         """
-        Wait for the specified completion time for a lesson
+        Wait for the specified completion time for a lesson or until the countdown timer has finished
 
         Args:
             completion_time (int): Time to wait in seconds
@@ -487,10 +467,9 @@ class CourseNavigationModel:
             bool: True if wait completed successfully
         """
         try:
-            print(f"Waiting {completion_time} seconds for lesson completion...")
+            print(f"[LESSON STATUS] Waiting for lesson completion (max {completion_time} seconds)...")
 
-            # Instead of a simple sleep, we'll check every 5 seconds if the user wants to skip
-            # This allows for manual intervention if needed
+            # Instead of a simple sleep, we'll check every 5 seconds if the countdown timer has finished
             start_time = time.time()
             elapsed_time = 0
 
@@ -498,17 +477,513 @@ class CourseNavigationModel:
                 time.sleep(5)  # Check every 5 seconds
                 elapsed_time = time.time() - start_time
                 remaining_time = completion_time - elapsed_time
-                print(f"Lesson completion: {int(elapsed_time)} seconds elapsed, {int(remaining_time)} seconds remaining")
+                print(f"[LESSON STATUS] Lesson completion: {int(elapsed_time)} seconds elapsed, {int(remaining_time)} seconds remaining")
 
-                # Here you could add a check for a UI element that allows skipping
-                # For now, we'll just wait the full time
+                # Check if the countdown timer element exists
+                try:
+                    # First find the section element using the XPath from the issue description
+                    section_element = self.driver.find_element(By.XPATH, "//*[@id=\"oe_structure_website_slides_lesson_top_1\"]/section")
+                    print(f"[LESSON STATUS] Found countdown section element at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
-            print("Lesson completion time reached")
+                    # Log all data attributes of the section element
+                    section_class = section_element.get_attribute("class")
+                    data_display = section_element.get_attribute("data-display")
+                    data_end_action = section_element.get_attribute("data-end-action")
+                    data_size = section_element.get_attribute("data-size")
+                    data_layout = section_element.get_attribute("data-layout")
+                    data_snippet = section_element.get_attribute("data-snippet")
+                    data_end_time = section_element.get_attribute("data-end-time")
+                    data_name = section_element.get_attribute("data-name")
+
+                    print(f"[LESSON STATUS] Section class: {section_class}")
+                    print(f"[LESSON STATUS] Section data attributes:")
+                    print(f"[LESSON STATUS]   - data-display: {data_display}")
+                    print(f"[LESSON STATUS]   - data-end-action: {data_end_action}")
+                    print(f"[LESSON STATUS]   - data-size: {data_size}")
+                    print(f"[LESSON STATUS]   - data-layout: {data_layout}")
+                    print(f"[LESSON STATUS]   - data-snippet: {data_snippet}")
+                    print(f"[LESSON STATUS]   - data-end-time: {data_end_time}")
+                    print(f"[LESSON STATUS]   - data-name: {data_name}")
+                    if data_end_time:
+                        try:
+                            end_time_float = float(data_end_time)
+                            current_time = time.time()
+                            remaining_seconds = max(0, end_time_float - current_time)
+                            minutes, seconds = divmod(int(remaining_seconds), 60)
+                            print(f"[LESSON STATUS] Countdown timer end time: {data_end_time}")
+                            print(f"[LESSON STATUS] Countdown timer remaining time: {minutes}:{seconds:02d} ({int(remaining_seconds)} seconds)")
+                        except ValueError:
+                            print(f"[LESSON STATUS] Could not convert data-end-time to float: {data_end_time}")
+
+                    # Then find the div containing the canvas elements
+                    countdown_section = section_element.find_element(By.XPATH, ".//div/div")
+                    print(f"[LESSON STATUS] Found countdown canvas wrapper at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+                    # Try to find the canvas element or any timer display within the countdown section
+                    # The HTML structure shows canvas elements within a div with class "ect_countdown_canvas_wrapper"
+                    canvas_elements = countdown_section.find_elements(By.TAG_NAME, "canvas")
+                    print(f"[LESSON STATUS] Found {len(canvas_elements)} canvas elements in countdown wrapper")
+
+                    # Log details about each canvas element
+                    for i, canvas in enumerate(canvas_elements):
+                        try:
+                            canvas_width = canvas.get_attribute("width")
+                            canvas_height = canvas.get_attribute("height")
+                            canvas_class = canvas.get_attribute("class")
+                            print(f"[LESSON STATUS] Canvas {i+1}: width={canvas_width}, height={canvas_height}, class={canvas_class}")
+
+                            # Try to get parent element with class ect_countdown_canvas_flex
+                            parent = canvas.find_element(By.XPATH, "./..")
+                            parent_class = parent.get_attribute("class")
+                            parent_text = parent.text.strip() if parent.text else "No text"
+                            print(f"[LESSON STATUS] Canvas {i+1} parent: class={parent_class}, text='{parent_text}'")
+                        except Exception as e:
+                            print(f"[LESSON STATUS] Error getting canvas {i+1} details: {e}")
+
+                    # Also look for elements with class containing "ect_countdown"
+                    timer_displays = countdown_section.find_elements(By.XPATH, ".//*[contains(@class, 'time') or contains(@class, 'timer') or contains(@class, 'countdown') or contains(@class, 'ect_countdown')]")
+                    print(f"[LESSON STATUS] Found {len(timer_displays)} timer display elements")
+
+                    # Extract and log the timer value if found
+                    timer_text = "Unknown"
+                    timer_seconds = -1  # Unknown timer value
+
+                    if canvas_elements:
+                        print(f"[LESSON STATUS] Found {len(canvas_elements)} canvas elements in countdown section")
+                        # Try to get timer value from surrounding elements
+                        for canvas in canvas_elements:
+                            try:
+                                # Check if the canvas is within a div with class "ect_countdown_canvas_flex"
+                                parent = canvas.find_element(By.XPATH, "./..")
+                                parent_class = parent.get_attribute("class")
+                                if parent_class and "ect_countdown_canvas_flex" in parent_class:
+                                    print(f"[LESSON STATUS] Found canvas in ect_countdown_canvas_flex div")
+
+                                # Check for text in the parent element
+                                if parent.text and len(parent.text.strip()) > 0:
+                                    timer_text = parent.text.strip()
+                                    print(f"[LESSON STATUS] Canvas parent text: '{timer_text}'")
+
+                                    # Try to extract time values from the text
+                                    import re
+                                    time_match = re.search(r'(\d+):(\d+)', timer_text)
+                                    if time_match:
+                                        minutes = int(time_match.group(1))
+                                        seconds = int(time_match.group(2))
+                                        timer_seconds = minutes * 60 + seconds
+                                        print(f"[LESSON STATUS] Extracted time from canvas parent: {minutes}:{seconds:02d} ({timer_seconds} seconds remaining)")
+
+                                # If no text found in parent, try to get data attributes from the canvas
+                                if timer_seconds < 0:
+                                    data_time = canvas.get_attribute("data-time")
+                                    if data_time and data_time.isdigit():
+                                        timer_seconds = int(data_time)
+                                        print(f"[LESSON STATUS] Extracted time from canvas data-time attribute: {timer_seconds} seconds remaining")
+
+                                    # If timer is at or near zero, click the next button
+                                    if "0:00" in timer_text.lower() or "00:00" in timer_text.lower() or (timer_seconds >= 0 and timer_seconds <= 1):
+                                        print(f"[LESSON STATUS] Canvas timer appears to be finished: '{timer_text}'")
+                                        print(f"[LESSON STATUS] Will click next button at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+                                        # Also check if the data-end-time has passed
+                                        data_end_time = section_element.get_attribute("data-end-time")
+                                        if data_end_time:
+                                            try:
+                                                end_time_float = float(data_end_time)
+                                                current_time = time.time()
+                                                if current_time >= end_time_float:
+                                                    print(f"[LESSON STATUS] Countdown timer has ended (data-end-time: {data_end_time}, current time: {current_time})")
+                                            except ValueError:
+                                                print(f"[LESSON STATUS] Could not convert data-end-time to float: {data_end_time}")
+
+                                        # Also check if the wrapper div has a class indicating completion
+                                        wrapper = countdown_section
+                                        wrapper_class = wrapper.get_attribute("class")
+                                        if wrapper_class and ("completed" in wrapper_class or "finished" in wrapper_class):
+                                            print(f"[LESSON STATUS] Found completion indicator in wrapper class: {wrapper_class}")
+
+                                        # Try to find and click the next button
+                                        try:
+                                            next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                                            if next_button.is_enabled() and next_button.is_displayed():
+                                                next_button.click()
+                                                time.sleep(3)  # Wait for page to load
+                                                print(f"[LESSON STATUS] Clicked next button from canvas timer, now at URL: {self.driver.current_url}")
+
+                                                # Check if the next lesson is already completed
+                                                if self._is_lesson_completed():
+                                                    print("[LESSON STATUS] Next lesson is already completed, clicking next again")
+                                                    self._click_next_button()
+
+                                                return True
+                                        except NoSuchElementException:
+                                            print("[LESSON STATUS] Next button not found after canvas timer finished")
+                                        except Exception as click_error:
+                                            print(f"[LESSON STATUS] Error clicking next button from canvas timer: {click_error}")
+
+                                    break
+                            except Exception as canvas_error:
+                                print(f"[LESSON STATUS] Error processing canvas element: {canvas_error}")
+                    elif timer_displays:
+                        for display in timer_displays:
+                            if display.text and len(display.text.strip()) > 0:
+                                timer_text = display.text.strip()
+                                print(f"[LESSON STATUS] Timer display text: '{timer_text}'")
+
+                                # Try to extract time values from the text
+                                import re
+                                time_match = re.search(r'(\d+):(\d+)', timer_text)
+                                if time_match:
+                                    minutes = int(time_match.group(1))
+                                    seconds = int(time_match.group(2))
+                                    timer_seconds = minutes * 60 + seconds
+                                    print(f"[LESSON STATUS] Extracted time from timer display: {minutes}:{seconds:02d} ({timer_seconds} seconds remaining)")
+
+                                break
+
+                    if timer_seconds >= 0:
+                        print(f"[LESSON STATUS] Current timer value: {timer_text} ({timer_seconds} seconds remaining), {int(remaining_time)} seconds until auto-click")
+                    else:
+                        print(f"[LESSON STATUS] Current timer value: {timer_text}, {int(remaining_time)} seconds until auto-click")
+
+                    # Check if the countdown has finished
+                    # This could be determined by various means depending on the website's implementation
+                    # For example, checking if a specific class is present, or if the text has changed
+
+                    # Try to find any countdown elements within the section
+                    countdown_elements = countdown_section.find_elements(By.XPATH, ".//*[contains(@class, 'countdown') or contains(@class, 'timer') or contains(@class, 'ect_countdown')]")
+
+                    # Also look for the specific canvas elements mentioned in the issue description
+                    canvas_wrapper = countdown_section.find_elements(By.XPATH, "./div[contains(@class, 'ect_countdown_canvas_wrapper')]")
+                    if canvas_wrapper:
+                        print(f"[LESSON STATUS] Found ect_countdown_canvas_wrapper div with {len(canvas_wrapper)} elements")
+
+                        # Check canvas elements within the wrapper
+                        wrapper_canvases = canvas_wrapper[0].find_elements(By.TAG_NAME, "canvas")
+                        if wrapper_canvases:
+                            print(f"[LESSON STATUS] Found {len(wrapper_canvases)} canvas elements in ect_countdown_canvas_wrapper")
+
+                            # Check if any of the canvas elements have attributes indicating completion
+                            for canvas in wrapper_canvases:
+                                try:
+                                    # Check for data attributes that might indicate completion
+                                    data_complete = canvas.get_attribute("data-complete")
+                                    data_finished = canvas.get_attribute("data-finished")
+                                    data_percent = canvas.get_attribute("data-percent")
+
+                                    if data_complete == "true" or data_finished == "true" or (data_percent and float(data_percent) >= 100):
+                                        print(f"[LESSON STATUS] Canvas element indicates countdown is complete: data-complete={data_complete}, data-finished={data_finished}, data-percent={data_percent}")
+
+                                        # Try to find and click the next button
+                                        try:
+                                            next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                                            if next_button.is_enabled() and next_button.is_displayed():
+                                                next_button.click()
+                                                time.sleep(3)  # Wait for page to load
+                                                print(f"[LESSON STATUS] Clicked next button after canvas completion, now at URL: {self.driver.current_url}")
+                                                return True
+                                        except Exception as e:
+                                            print(f"[LESSON STATUS] Error clicking next button after canvas completion: {e}")
+                                except Exception as e:
+                                    print(f"[LESSON STATUS] Error checking canvas attributes: {e}")
+
+                    if not countdown_elements:
+                        # If no specific countdown elements found, check if the section is still visible
+                        # or if it has a specific attribute indicating completion
+
+                        # If the countdown section is no longer visible or has changed, assume it's finished
+                        print("[LESSON STATUS] No countdown elements found, checking if section is still active")
+
+                        # Check if the next button is enabled, which might indicate the countdown is finished
+                        try:
+                            next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                            if next_button.is_enabled() and next_button.is_displayed():
+                                print("[LESSON STATUS] Next button is enabled and displayed, countdown likely finished")
+                                print(f"[LESSON STATUS] Clicking next button to proceed to next lesson at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+                                # Click the next button
+                                next_button.click()
+                                time.sleep(3)  # Wait for page to load
+                                print(f"[LESSON STATUS] Clicked next button, now at URL: {self.driver.current_url}")
+
+                                # Check if the next lesson is already completed
+                                if self._is_lesson_completed():
+                                    print("[LESSON STATUS] Next lesson is already completed, clicking next again")
+                                    self._click_next_button()
+
+                                return True
+                        except NoSuchElementException:
+                            # Next button not found, continue waiting
+                            print("[LESSON STATUS] Next button not found, continuing to wait")
+                            pass
+                    else:
+                        # Check each countdown element
+                        for element in countdown_elements:
+                            try:
+                                # Check if the countdown shows 0 or "Finished" or similar
+                                element_text = element.text.strip().lower()
+                                print(f"[LESSON STATUS] Countdown element text: '{element_text}'")
+
+                                # Try to extract time values (minutes:seconds) from the text
+                                import re
+                                time_match = re.search(r'(\d+):(\d+)', element_text)
+                                if time_match:
+                                    minutes = int(time_match.group(1))
+                                    seconds = int(time_match.group(2))
+                                    total_seconds = minutes * 60 + seconds
+                                    print(f"[LESSON STATUS] Extracted time: {minutes}:{seconds:02d} ({total_seconds} seconds remaining)")
+
+                                # Check if timer is at or near zero
+                                if "0:00" in element_text or "00:00" in element_text or "finished" in element_text or "complete" in element_text or (time_match and total_seconds <= 1):
+                                    print(f"[LESSON STATUS] Countdown appears to be finished: '{element_text}'")
+                                    print(f"[LESSON STATUS] Clicking next button to proceed to next lesson at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+                                    # Try to find and click the next button
+                                    try:
+                                        next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                                        if next_button.is_enabled() and next_button.is_displayed():
+                                            next_button.click()
+                                            time.sleep(3)  # Wait for page to load
+                                            print(f"[LESSON STATUS] Clicked next button, now at URL: {self.driver.current_url}")
+
+                                            # Check if the next lesson is already completed
+                                            if self._is_lesson_completed():
+                                                print("[LESSON STATUS] Next lesson is already completed, clicking next again")
+                                                self._click_next_button()
+                                    except NoSuchElementException:
+                                        print("[LESSON STATUS] Next button not found after countdown finished")
+                                    except Exception as click_error:
+                                        print(f"[LESSON STATUS] Error clicking next button: {click_error}")
+
+                                    return True
+                            except Exception as element_error:
+                                print(f"[LESSON STATUS] Error checking countdown element text: {element_error}")
+                                pass
+                except NoSuchElementException:
+                    # Countdown section not found, it might have been removed after completion
+                    print("[LESSON STATUS] Countdown section not found, it might have been completed")
+
+                    # Check if the next button is enabled
+                    try:
+                        next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                        if next_button.is_enabled() and next_button.is_displayed():
+                            print("[LESSON STATUS] Next button is enabled and displayed, countdown likely finished")
+                            print(f"[LESSON STATUS] Clicking next button to proceed to next lesson at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+                            # Click the next button
+                            next_button.click()
+                            time.sleep(3)  # Wait for page to load
+                            print(f"[LESSON STATUS] Clicked next button, now at URL: {self.driver.current_url}")
+
+                            # Check if the next lesson is already completed
+                            if self._is_lesson_completed():
+                                print("[LESSON STATUS] Next lesson is already completed, clicking next again")
+                                self._click_next_button()
+
+                            return True
+                    except NoSuchElementException:
+                        # Next button not found, continue waiting
+                        print("[LESSON STATUS] Next button not found, continuing to wait")
+                        pass
+
+            print("[LESSON STATUS] Maximum wait time reached")
+            print(f"[LESSON STATUS] Attempting to click next button at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+            # Try to find and click the next button
+            try:
+                next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                if next_button.is_enabled() and next_button.is_displayed():
+                    # Log the action with timestamp
+                    print(f"[LESSON STATUS] Found next button, clicking it at {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+                    # Take a screenshot before clicking (if possible)
+                    try:
+                        screenshot_path = f"next_button_screenshot_{int(time.time())}.png"
+                        self.driver.save_screenshot(screenshot_path)
+                        print(f"[LESSON STATUS] Saved screenshot before clicking next button: {screenshot_path}")
+                    except Exception as ss_error:
+                        print(f"[LESSON STATUS] Could not save screenshot: {ss_error}")
+
+                    # Click the next button
+                    next_button.click()
+                    time.sleep(3)  # Wait for page to load
+                    print(f"[LESSON STATUS] Clicked next button after max wait time, now at URL: {self.driver.current_url}")
+
+                    # Check if the next lesson is already completed
+                    if self._is_lesson_completed():
+                        print("[LESSON STATUS] Next lesson is already completed, clicking next again")
+                        self._click_next_button()
+                else:
+                    print("[LESSON STATUS] Next button found but not enabled/displayed")
+            except NoSuchElementException:
+                print("[LESSON STATUS] Next button not found after max wait time")
+
+                # Try alternative methods to find the next button
+                try:
+                    # Try using JavaScript to find and click the button
+                    print("[LESSON STATUS] Trying to find next button using JavaScript")
+                    self.driver.execute_script("document.getElementById('next-slide-button').click();")
+                    time.sleep(3)
+                    print(f"[LESSON STATUS] Clicked next button using JavaScript, now at URL: {self.driver.current_url}")
+                except Exception as js_error:
+                    print(f"[LESSON STATUS] JavaScript click failed: {js_error}")
+
+                    # Try other selectors as a last resort
+                    try:
+                        print("[LESSON STATUS] Trying alternative selectors for next button")
+                        alternative_selectors = [
+                            "//button[contains(text(), 'Next')]",
+                            "//a[contains(text(), 'Next')]",
+                            "//button[contains(@class, 'next')]",
+                            "//a[contains(@class, 'next')]"
+                        ]
+
+                        for selector in alternative_selectors:
+                            try:
+                                alt_button = self.driver.find_element(By.XPATH, selector)
+                                if alt_button and alt_button.is_displayed():
+                                    alt_button.click()
+                                    time.sleep(3)
+                                    print(f"[LESSON STATUS] Clicked alternative next button, now at URL: {self.driver.current_url}")
+                                    break
+                            except:
+                                continue
+                    except Exception as alt_error:
+                        print(f"[LESSON STATUS] All alternative methods failed: {alt_error}")
+            except Exception as click_error:
+                print(f"[LESSON STATUS] Error clicking next button after max wait time: {click_error}")
+
             return True
 
         except Exception as e:
-            print(f"Error during lesson completion wait: {e}")
+            print(f"[LESSON STATUS] Error during lesson completion wait: {e}")
             return False
+
+    def _is_lesson_completed(self):
+        """
+        Check if the current lesson is already completed
+
+        Returns:
+            bool: True if the lesson is completed, False otherwise
+        """
+        try:
+            # Look for completion indicators
+            # This could be a progress bar, a checkmark, or text indicating completion
+            completion_indicators = [
+                "//*[contains(@class, 'completed') or contains(@class, 'done')]",
+                "//span[contains(text(), '100%')]",
+                "//div[contains(@class, 'progress-bar')][contains(@style, 'width: 100%')]"
+            ]
+
+            for indicator in completion_indicators:
+                elements = self.driver.find_elements(By.XPATH, indicator)
+                if elements:
+                    print(f"[LESSON STATUS] Found completion indicator: {indicator}")
+                    return True
+
+            # Check if there's a countdown timer section
+            try:
+                # First try to find the section element using the XPath from the issue description
+                section_element = self.driver.find_element(By.XPATH, "//*[@id=\"oe_structure_website_slides_lesson_top_1\"]/section")
+                print("[LESSON STATUS] Found countdown section element in _is_lesson_completed")
+
+                # Check if the countdown has ended by looking at the data-end-time attribute
+                data_end_time = section_element.get_attribute("data-end-time")
+                if data_end_time:
+                    try:
+                        end_time_float = float(data_end_time)
+                        current_time = time.time()
+                        if current_time >= end_time_float:
+                            print(f"[LESSON STATUS] Countdown timer has ended (data-end-time: {data_end_time}, current time: {current_time})")
+                            return True
+                        else:
+                            remaining_seconds = max(0, end_time_float - current_time)
+                            minutes, seconds = divmod(int(remaining_seconds), 60)
+                            print(f"[LESSON STATUS] Countdown timer still running: {minutes}:{seconds:02d} ({int(remaining_seconds)} seconds remaining)")
+                            return False
+                    except ValueError:
+                        print(f"[LESSON STATUS] Could not convert data-end-time to float: {data_end_time}")
+
+                # Then check for the div containing the canvas elements
+                try:
+                    countdown_section = section_element.find_element(By.XPATH, ".//div/div")
+                    print("[LESSON STATUS] Found countdown canvas wrapper in _is_lesson_completed")
+
+                    # Check if there are any canvas elements
+                    canvas_elements = countdown_section.find_elements(By.TAG_NAME, "canvas")
+                    if canvas_elements:
+                        print(f"[LESSON STATUS] Found {len(canvas_elements)} canvas elements, lesson likely not completed yet")
+                        return False
+                except NoSuchElementException:
+                    print("[LESSON STATUS] Could not find countdown canvas wrapper, lesson might be completed")
+
+                # If we found the section but not the canvas elements, the lesson might be completed
+                return True
+            except NoSuchElementException:
+                print("[LESSON STATUS] Could not find countdown section element, checking for next button")
+                # If there's no countdown section, check if there's a next button
+                # If there is, the lesson might be completed
+                try:
+                    next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+                    if next_button.is_enabled() and next_button.is_displayed():
+                        print("[LESSON STATUS] Next button is enabled and displayed, lesson might be completed")
+                        return True
+                except NoSuchElementException:
+                    print("[LESSON STATUS] Next button not found")
+                    pass
+
+            return False
+        except Exception as e:
+            print(f"[LESSON STATUS] Error checking if lesson is completed: {e}")
+            return False
+
+    def _click_next_button(self):
+        """
+        Click the next button to navigate to the next lesson
+
+        Returns:
+            str: URL of the next lesson, or None if there is no next button
+        """
+        try:
+            # Use the specific XPath provided in the issue description
+            next_button = self.driver.find_element(By.XPATH, "//*[@id=\"next-slide-button\"]")
+            print("[LESSON STATUS] Found next button using the specific XPath")
+            next_buttons = [next_button]
+        except NoSuchElementException:
+            print("[LESSON STATUS] Specific XPath for next button not found, trying alternatives...")
+            # Fall back to alternative selectors if the specific XPath doesn't work
+            next_buttons = []
+
+            # Try various selectors that might indicate a "next" button
+            selectors = [
+                "//a[contains(text(), 'Next') or contains(text(), 'next') or contains(text(), 'Tiếp theo')]",
+                "//button[contains(text(), 'Next') or contains(text(), 'next') or contains(text(), 'Tiếp theo')]",
+                "//a[contains(@class, 'next')]",
+                "//button[contains(@class, 'next')]",
+                "//a[contains(@title, 'Next') or contains(@title, 'next') or contains(@title, 'Tiếp theo')]",
+                "//i[contains(@class, 'fa-arrow-right')]/parent::a",
+                "//i[contains(@class, 'fa-chevron-right')]/parent::a"
+            ]
+
+            for selector in selectors:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    next_buttons.extend(elements)
+                except:
+                    continue
+
+        if next_buttons:
+            # Click the first "next" button found
+            next_url = next_buttons[0].get_attribute('href')
+            print(f"[LESSON STATUS] Found next lesson button. URL: {next_url}")
+            next_buttons[0].click()
+            time.sleep(3)  # Wait for page to load
+            current_url = self.driver.current_url
+            print(f"[LESSON STATUS] Clicked next button, now at URL: {current_url}")
+            return current_url
+        else:
+            print("[LESSON STATUS] No next lesson button found")
+            return None
 
     def check_course_completion(self, user_id, course_id):
         """

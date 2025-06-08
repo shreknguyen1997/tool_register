@@ -518,7 +518,9 @@ class MainWindow(QWidget):
             course: Course object
         """
         try:
-            print("Searching for incomplete lessons...")
+            import datetime
+            current_time = datetime.datetime.now().strftime('%H:%M:%S')
+            print(f"[LESSON CHECK] Starting search for incomplete lessons at {current_time}...")
 
             # Đợi trang tải xong
             time.sleep(3)
@@ -530,14 +532,15 @@ class MainWindow(QWidget):
             self.incomplete_lessons = []
 
             # Get lessons with less than 50% completion using CourseNavigationModel
-            print(f"Getting lessons with less than 50% completion for course URL: {course.url}")
+            print(f"[LESSON CHECK] Getting lessons with less than 50% completion for course URL: {course.url}")
             try:
+                print(f"[LESSON CHECK] Using CourseNavigationModel approach at {datetime.datetime.now().strftime('%H:%M:%S')}")
                 self.incomplete_lessons = course_nav_model.get_lessons_less_than_50_percent(course.url)
-                print(f"Found {len(self.incomplete_lessons)} lessons with less than 50% completion")
+                print(f"[LESSON CHECK] Found {len(self.incomplete_lessons)} lessons with less than 50% completion")
 
                 # Display the list of incomplete lessons
                 for i, lesson in enumerate(self.incomplete_lessons):
-                    print(f"Lesson {i+1}: {lesson.get('title', 'No title')} - {lesson.get('url', 'No URL')} - {lesson.get('completion_percentage', 0)}%")
+                    print(f"[LESSON CHECK] Lesson {i+1}: {lesson.get('title', 'No title')} - {lesson.get('url', 'No URL')} - {lesson.get('completion_percentage', 0)}%")
 
                 # If we found any incomplete lessons, use the first one
                 if self.incomplete_lessons:
@@ -554,27 +557,28 @@ class MainWindow(QWidget):
                         current_url
                     )
 
-                    print(f"Updated current lesson to: {current_url}")
+                    print(f"[LESSON CHECK] Updated current lesson to: {current_url}")
+                    print(f"[LESSON CHECK] Successfully found and navigated to incomplete lesson at {datetime.datetime.now().strftime('%H:%M:%S')}")
                     return
                 else:
-                    print("No lessons with less than 50% completion found using CourseNavigationModel")
+                    print(f"[LESSON CHECK] No lessons with less than 50% completion found using CourseNavigationModel at {datetime.datetime.now().strftime('%H:%M:%S')}")
             except Exception as e:
-                print(f"Error using CourseNavigationModel: {e}")
-                print("Falling back to original approach")
+                print(f"[LESSON CHECK] Error using CourseNavigationModel: {e}")
+                print(f"[LESSON CHECK] Falling back to original approach at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
             # If CourseNavigationModel approach failed, try the direct approach
-            print("Using direct approach: Finding li elements and checking their content")
+            print(f"[LESSON CHECK] Using direct approach: Finding li elements and checking their content at {datetime.datetime.now().strftime('%H:%M:%S')}")
             try:
                 # Use the specific XPath provided in the issue description to get all li elements
                 li_elements = driver.find_elements(By.XPATH, "//*[@id=\"home\"]/div/ul/li/ul/li")
-                print(f"Found {len(li_elements)} li elements using the specific XPath")
+                print(f"[LESSON CHECK] Found {len(li_elements)} li elements using the specific XPath")
 
                 # Process each li element to find those with less than 50% completion
                 for li in li_elements:
                     try:
                         # Get the li text and extract any information
                         li_text = li.text.strip()
-                        print(f"Li text: '{li_text}'")
+                        print(f"[LESSON CHECK] Examining li element: '{li_text}'")
 
                         # Try to find a span element within the li
                         span_elements = li.find_elements(By.TAG_NAME, "span")
@@ -586,37 +590,39 @@ class MainWindow(QWidget):
                         for span in span_elements:
                             try:
                                 span_text = span.text.strip()
-                                print(f"Span text within li: '{span_text}'")
+                                print(f"[LESSON CHECK] Span text within li: '{span_text}'")
 
                                 # Look for percentage pattern in the span text
                                 import re
                                 percentage_match = re.search(r'(\d+)\s*%', span_text)
                                 if percentage_match:
                                     completion_percentage = int(percentage_match.group(1))
-                                    print(f"Found completion percentage in span: {completion_percentage}%")
+                                    print(f"[LESSON CHECK] Found completion percentage in span: {completion_percentage}%")
                                     break
                             except Exception as e:
-                                print(f"Error processing span within li: {e}")
+                                print(f"[LESSON CHECK] Error processing span within li: {e}")
 
                         # If no span found or no percentage in span, try to extract from li text directly
                         if completion_percentage == 0:
                             percentage_match = re.search(r'(\d+)\s*%', li_text)
                             if percentage_match:
                                 completion_percentage = int(percentage_match.group(1))
-                                print(f"Found completion percentage in li text: {completion_percentage}%")
+                                print(f"[LESSON CHECK] Found completion percentage in li text: {completion_percentage}%")
 
                         # Check if the completion percentage is less than 50%
                         if completion_percentage < 50:
-                            print(f"Found li with <50% completion: {li_text}, Completion: {completion_percentage}%")
+                            print(f"[LESSON CHECK] Found li with <50% completion: {li_text}, Completion: {completion_percentage}%")
 
                             # Try to find an anchor element within the li
                             try:
                                 # First try to find a direct child anchor
                                 anchors = li.find_elements(By.TAG_NAME, "a")
+                                print(f"[LESSON CHECK] Looking for anchor elements in li, found {len(anchors)} direct child anchors")
 
                                 # If no direct child anchors, try to find any descendant anchor
                                 if not anchors:
                                     anchors = li.find_elements(By.XPATH, ".//a")
+                                    print(f"[LESSON CHECK] Looking for descendant anchors, found {len(anchors)} anchors")
 
                                 if anchors:
                                     anchor = anchors[0]  # Use the first anchor found
@@ -625,7 +631,7 @@ class MainWindow(QWidget):
                                     if span_text:
                                         lesson_title = li_text.replace(span_text, "").strip()  # Remove span text from li text
 
-                                    print(f"Found lesson with <50% completion: {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
+                                    print(f"[LESSON CHECK] Found lesson with <50% completion: {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
 
                                     # Add to our list of incomplete lessons
                                     self.incomplete_lessons.append({
@@ -636,14 +642,16 @@ class MainWindow(QWidget):
 
                                     # We found an incomplete lesson, use it
                                     incomplete_lesson = anchor
+                                    print(f"[LESSON CHECK] Found incomplete lesson to use at {datetime.datetime.now().strftime('%H:%M:%S')}")
                                     break
                                 else:
-                                    print(f"No anchor found in li with <50% completion")
+                                    print(f"[LESSON CHECK] No anchor found in li with <50% completion")
 
                                     # Try to find an anchor in the parent element
                                     try:
                                         parent = li.find_element(By.XPATH, "./..")
                                         parent_anchors = parent.find_elements(By.TAG_NAME, "a")
+                                        print(f"[LESSON CHECK] Looking for anchors in parent element, found {len(parent_anchors)} anchors")
 
                                         if parent_anchors:
                                             anchor = parent_anchors[0]
@@ -652,7 +660,7 @@ class MainWindow(QWidget):
                                             if span_text:
                                                 lesson_title = li_text.replace(span_text, "").strip()
 
-                                            print(f"Found lesson with <50% completion (via parent): {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
+                                            print(f"[LESSON CHECK] Found lesson with <50% completion (via parent): {lesson_title}, URL: {lesson_url}, Completion: {completion_percentage}%")
 
                                             # Add to our list of incomplete lessons
                                             self.incomplete_lessons.append({
@@ -663,28 +671,30 @@ class MainWindow(QWidget):
 
                                             # We found an incomplete lesson, use it
                                             incomplete_lesson = anchor
+                                            print(f"[LESSON CHECK] Found incomplete lesson via parent element at {datetime.datetime.now().strftime('%H:%M:%S')}")
                                             break
                                     except Exception as e:
-                                        print(f"Error finding anchor in parent: {e}")
+                                        print(f"[LESSON CHECK] Error finding anchor in parent: {e}")
                             except Exception as e:
-                                print(f"Error finding anchor in li: {e}")
+                                print(f"[LESSON CHECK] Error finding anchor in li: {e}")
                     except Exception as e:
-                        print(f"Error processing li element: {e}")
+                        print(f"[LESSON CHECK] Error processing li element: {e}")
 
                 # If we found an incomplete lesson, we'll use it
                 if incomplete_lesson:
-                    print("Found incomplete lesson using the direct approach")
+                    print(f"[LESSON CHECK] Found incomplete lesson using the direct approach at {datetime.datetime.now().strftime('%H:%M:%S')}")
             except Exception as e:
-                print(f"Error with direct approach: {e}")
-                print("Falling back to original approach")
+                print(f"[LESSON CHECK] Error with direct approach: {e}")
+                print(f"[LESSON CHECK] Falling back to original approach at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
             # If we didn't find an incomplete lesson with the new approach, try the original approach
             if not incomplete_lesson:
+                print(f"[LESSON CHECK] No incomplete lesson found with direct approach, trying original approach at {datetime.datetime.now().strftime('%H:%M:%S')}")
                 # Tìm tất cả các bài học
                 lesson_elements = driver.find_elements(By.CSS_SELECTOR, ".lesson-item, .course-item, .slide-item, .chapter-item, .module-item, .unit-item")
 
                 if not lesson_elements:
-                    print("No lesson elements found with standard selectors, trying alternative selectors...")
+                    print("[LESSON CHECK] No lesson elements found with standard selectors, trying alternative selectors...")
                     # Try alternative selectors for different course platforms
                     alternative_selectors = [
                         "a[href*='lesson']", 
@@ -701,19 +711,19 @@ class MainWindow(QWidget):
                     for selector in alternative_selectors:
                         lesson_elements = driver.find_elements(By.CSS_SELECTOR, selector)
                         if lesson_elements:
-                            print(f"Found {len(lesson_elements)} elements with selector: {selector}")
+                            print(f"[LESSON CHECK] Found {len(lesson_elements)} elements with selector: {selector}")
                             break
 
                     if not lesson_elements:
-                        print("Still no lesson elements found, trying to find any clickable elements...")
+                        print("[LESSON CHECK] Still no lesson elements found, trying to find any clickable elements...")
                         # Last resort: find all links that might be lessons
                         lesson_elements = driver.find_elements(By.TAG_NAME, "a")
 
                 if not lesson_elements:
-                    print("No lesson elements found after all attempts")
+                    print(f"[LESSON CHECK] No lesson elements found after all attempts at {datetime.datetime.now().strftime('%H:%M:%S')}")
                     return
 
-                print(f"Found {len(lesson_elements)} potential lesson elements")
+                print(f"[LESSON CHECK] Found {len(lesson_elements)} potential lesson elements")
 
                 # Tìm bài học chưa hoàn thành đầu tiên
                 completion_indicators = ["completed", "done", "finished", "complete", "watched", "viewed"]
@@ -739,22 +749,26 @@ class MainWindow(QWidget):
 
                     if not is_completed:
                         incomplete_lesson = element
+                        print(f"[LESSON CHECK] Found incomplete lesson using original approach at {datetime.datetime.now().strftime('%H:%M:%S')}")
                         break
 
             if incomplete_lesson:
-                print("Found incomplete lesson, clicking on it...")
+                print(f"[LESSON CHECK] Found incomplete lesson, attempting to click on it at {datetime.datetime.now().strftime('%H:%M:%S')}...")
                 try:
                     # Try to scroll to the element first to make it visible
                     driver.execute_script("arguments[0].scrollIntoView(true);", incomplete_lesson)
                     time.sleep(1)  # Give time for the scroll to complete
+                    print(f"[LESSON CHECK] Scrolled to incomplete lesson element")
 
                     # Click vào bài học chưa hoàn thành
                     incomplete_lesson.click()
+                    print(f"[LESSON CHECK] Clicked on incomplete lesson at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
                     # Lưu URL của bài học vào course
                     time.sleep(2)  # Đợi trang tải
                     current_url = driver.current_url
                     course.current_lesson = current_url
+                    print(f"[LESSON CHECK] Current URL after click: {current_url}")
 
                     # Cập nhật course trong database
                     self.course_controller.update_course(
@@ -764,16 +778,16 @@ class MainWindow(QWidget):
                         current_url
                     )
 
-                    print(f"Updated current lesson to: {current_url}")
+                    print(f"[LESSON CHECK] Updated current lesson in database to: {current_url}")
 
                     # Navigate to lesson details
                     try:
-                        print("Attempting to navigate to lesson details...")
+                        print(f"[LESSON CHECK] Attempting to navigate to lesson details at {datetime.datetime.now().strftime('%H:%M:%S')}...")
                         # Look for lesson detail elements using the provided XPath
                         detail_elements = driver.find_elements(By.XPATH, "//*[@id=\"home\"]/div/ul/li/ul/li")
 
                         if detail_elements:
-                            print(f"Found {len(detail_elements)} detail elements")
+                            print(f"[LESSON CHECK] Found {len(detail_elements)} detail elements")
                             # Try to find clickable elements within the details
                             for detail_element in detail_elements:
                                 try:
@@ -783,7 +797,7 @@ class MainWindow(QWidget):
                                         clickable = detail_element.find_elements(By.TAG_NAME, "button")
 
                                     if clickable:
-                                        print(f"Found clickable element in lesson details: {clickable[0].text}")
+                                        print(f"[LESSON CHECK] Found clickable element in lesson details: {clickable[0].text}")
                                         # Scroll to the element
                                         driver.execute_script("arguments[0].scrollIntoView(true);", clickable[0])
                                         time.sleep(1)
@@ -791,10 +805,11 @@ class MainWindow(QWidget):
                                         # Click on the element to navigate to lesson details
                                         clickable[0].click()
                                         time.sleep(2)
+                                        print(f"[LESSON CHECK] Clicked on detail element at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
                                         # Update the URL again after navigating to details
                                         detail_url = driver.current_url
-                                        print(f"Navigated to lesson details: {detail_url}")
+                                        print(f"[LESSON CHECK] Navigated to lesson details: {detail_url}")
 
                                         # Update the course with the detail URL
                                         course.current_lesson = detail_url
@@ -804,15 +819,16 @@ class MainWindow(QWidget):
                                             course.url, 
                                             detail_url
                                         )
+                                        print(f"[LESSON CHECK] Updated course with detail URL in database")
                                         break
                                 except Exception as detail_error:
-                                    print(f"Error interacting with detail element: {detail_error}")
+                                    print(f"[LESSON CHECK] Error interacting with detail element: {detail_error}")
                         else:
-                            print("No lesson detail elements found, trying direct URL navigation")
+                            print(f"[LESSON CHECK] No lesson detail elements found at {datetime.datetime.now().strftime('%H:%M:%S')}, trying direct URL navigation")
                             # Fallback: Try to navigate directly to the specific URL from the issue description
                             try:
                                 specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
-                                print(f"Navigating directly to: {specific_url}")
+                                print(f"[LESSON CHECK] Navigating directly to: {specific_url}")
                                 driver.get(specific_url)
                                 time.sleep(3)  # Wait for the page to load
 
@@ -824,15 +840,15 @@ class MainWindow(QWidget):
                                     course.url, 
                                     specific_url
                                 )
-                                print(f"Updated course with specific URL: {specific_url}")
+                                print(f"[LESSON CHECK] Updated course with specific URL in database: {specific_url}")
                             except Exception as direct_nav_error:
-                                print(f"Error navigating directly to specific URL: {direct_nav_error}")
+                                print(f"[LESSON CHECK] Error navigating directly to specific URL: {direct_nav_error}")
                     except Exception as detail_nav_error:
-                        print(f"Error navigating to lesson details: {detail_nav_error}")
+                        print(f"[LESSON CHECK] Error navigating to lesson details: {detail_nav_error}")
                         # Fallback: Try to navigate directly to the specific URL from the issue description
                         try:
                             specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
-                            print(f"Navigating directly to: {specific_url}")
+                            print(f"[LESSON CHECK] Navigating directly to: {specific_url}")
                             driver.get(specific_url)
                             time.sleep(3)  # Wait for the page to load
 
@@ -844,18 +860,20 @@ class MainWindow(QWidget):
                                 course.url, 
                                 specific_url
                             )
-                            print(f"Updated course with specific URL: {specific_url}")
+                            print(f"[LESSON CHECK] Updated course with specific URL in database: {specific_url}")
                         except Exception as direct_nav_error:
-                            print(f"Error navigating directly to specific URL: {direct_nav_error}")
+                            print(f"[LESSON CHECK] Error navigating directly to specific URL: {direct_nav_error}")
 
                 except Exception as click_error:
-                    print(f"Error clicking on lesson: {click_error}")
+                    print(f"[LESSON CHECK] Error clicking on lesson: {click_error}")
                     # Try alternative click methods
                     try:
+                        print(f"[LESSON CHECK] Trying JavaScript click method at {datetime.datetime.now().strftime('%H:%M:%S')}")
                         driver.execute_script("arguments[0].click();", incomplete_lesson)
                         time.sleep(2)
                         current_url = driver.current_url
                         course.current_lesson = current_url
+                        print(f"[LESSON CHECK] JavaScript click successful, current URL: {current_url}")
 
                         # Update the course in the database
                         self.course_controller.update_course(
@@ -867,10 +885,10 @@ class MainWindow(QWidget):
 
                         # Try to navigate to lesson details even after JavaScript click
                         try:
-                            print("Attempting to navigate to lesson details after JavaScript click...")
+                            print(f"[LESSON CHECK] Attempting to navigate to lesson details after JavaScript click at {datetime.datetime.now().strftime('%H:%M:%S')}...")
                             # Try direct navigation to the specific URL as a fallback
                             specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
-                            print(f"Navigating directly to: {specific_url}")
+                            print(f"[LESSON CHECK] Navigating directly to: {specific_url}")
                             driver.get(specific_url)
                             time.sleep(3)  # Wait for the page to load
 
@@ -882,18 +900,18 @@ class MainWindow(QWidget):
                                 course.url, 
                                 specific_url
                             )
-                            print(f"Updated course with specific URL: {specific_url}")
+                            print(f"[LESSON CHECK] Updated course with specific URL in database: {specific_url}")
                         except Exception as js_detail_error:
-                            print(f"Error navigating to lesson details after JavaScript click: {js_detail_error}")
-                        print(f"Clicked using JavaScript, updated current lesson to: {current_url}")
+                            print(f"[LESSON CHECK] Error navigating to lesson details after JavaScript click: {js_detail_error}")
+                        print(f"[LESSON CHECK] Clicked using JavaScript, updated current lesson to: {current_url}")
                     except Exception as js_error:
-                        print(f"JavaScript click also failed: {js_error}")
+                        print(f"[LESSON CHECK] JavaScript click also failed: {js_error}")
             else:
-                print("No incomplete lessons found, trying direct navigation to specific URL")
+                print(f"[LESSON CHECK] No incomplete lessons found at {datetime.datetime.now().strftime('%H:%M:%S')}, trying direct navigation to specific URL")
                 # Fallback: Try to navigate directly to the specific URL from the issue description
                 try:
                     specific_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
-                    print(f"Navigating directly to: {specific_url}")
+                    print(f"[LESSON CHECK] Navigating directly to: {specific_url}")
                     driver.get(specific_url)
                     time.sleep(3)  # Wait for the page to load
 
@@ -905,12 +923,13 @@ class MainWindow(QWidget):
                         course.url, 
                         specific_url
                     )
-                    print(f"Updated course with specific URL: {specific_url}")
+                    print(f"[LESSON CHECK] Updated course with specific URL in database: {specific_url}")
                 except Exception as direct_nav_error:
-                    print(f"Error navigating directly to specific URL: {direct_nav_error}")
+                    print(f"[LESSON CHECK] Error navigating directly to specific URL: {direct_nav_error}")
 
         except Exception as e:
-            print(f"Error finding next incomplete lesson: {e}")
+            print(f"[LESSON CHECK] Error finding next incomplete lesson: {e}")
+            print(f"[LESSON CHECK] Search for incomplete lessons failed at {datetime.datetime.now().strftime('%H:%M:%S')}")
 
     def start_user(self, user):
         """Bắt đầu chạy một user (đánh dấu là đang chạy)"""
@@ -1356,6 +1375,29 @@ class MainWindow(QWidget):
                 self.start_user(user)
                 # Gọi login_controller để xử lý đăng nhập
                 success = self.login_controller.handle_login(user.url, user.username, user.password)
+
+                # Nếu đăng nhập thành công, hiển thị chi tiết khóa học và bài học dưới 50%
+                if success:
+                    # Lấy danh sách khóa học của user
+                    courses = self.course_controller.get_courses_for_user(user.id)
+                    if courses:
+                        # Chọn khóa học đầu tiên
+                        selected_course = courses[0]
+                        self.selected_course = selected_course
+
+                        # Chuyển đến tab khóa học để hiển thị chi tiết
+                        self.tab_widget.setCurrentIndex(1)  # Index 1 is the Courses tab
+
+                        # Cập nhật danh sách khóa học để hiển thị
+                        self.selected_user = user
+                        self.selected_user_label.setText(f"Selected user: {user.username}")
+                        self.update_course_list()
+
+                        # Tìm và điều hướng đến bài học chưa hoàn thành (<50%)
+                        driver = self.login_model.drivers.get(user.username)
+                        if driver and selected_course:
+                            self.find_next_incomplete_lesson(driver, selected_course)
+
                 # Nếu đăng nhập thất bại, đánh dấu user là đã dừng
                 if not success:
                     self.stop_user(user)
@@ -1434,6 +1476,29 @@ class MainWindow(QWidget):
                 self.start_user(user)
                 # Gọi login_controller để xử lý đăng nhập
                 success = self.login_controller.handle_login(user.url, user.username, user.password)
+
+                # Nếu đăng nhập thành công, hiển thị chi tiết khóa học và bài học dưới 50%
+                if success:
+                    # Lấy danh sách khóa học của user
+                    courses = self.course_controller.get_courses_for_user(user.id)
+                    if courses:
+                        # Chọn khóa học đầu tiên
+                        selected_course = courses[0]
+                        self.selected_course = selected_course
+
+                        # Chuyển đến tab khóa học để hiển thị chi tiết
+                        self.tab_widget.setCurrentIndex(1)  # Index 1 is the Courses tab
+
+                        # Cập nhật danh sách khóa học để hiển thị
+                        self.selected_user = user
+                        self.selected_user_label.setText(f"Selected user: {user.username}")
+                        self.update_course_list()
+
+                        # Tìm và điều hướng đến bài học chưa hoàn thành (<50%)
+                        driver = self.login_model.drivers.get(user.username)
+                        if driver and selected_course:
+                            self.find_next_incomplete_lesson(driver, selected_course)
+
                 # Nếu đăng nhập thất bại, đánh dấu user là đã dừng
                 if not success:
                     self.stop_user(user)
