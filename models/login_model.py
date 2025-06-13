@@ -30,20 +30,36 @@ class LoginModel:
             # Tạo một driver mới cho user này
             service = Service(self.driver_path)
             chrome_options = Options()
+            # Enable DevTools for network monitoring
+            chrome_options.add_argument("--remote-debugging-port=9222")  # Enable remote debugging
+            chrome_options.add_argument("--auto-open-devtools-for-tabs")  # Automatically open DevTools
             # Có thể thêm các options khác nếu cần
             # chrome_options.add_argument("--headless")  # Chạy ẩn (không hiển thị giao diện)
 
             # Khởi tạo ChromeDriver mới
             try:
                 # For Windows, make sure we're using the .exe extension
-                if os.name == 'nt' and not self.driver_path.endswith('.exe'):
-                    driver_path_with_exe = self.driver_path + '.exe'
-                    if os.path.exists(driver_path_with_exe):
-                        service = Service(driver_path_with_exe)
-                        print(f"Using Windows ChromeDriver: {driver_path_with_exe}")
+                if os.name == 'nt':
+                    # First check if the path already has .exe extension
+                    if not self.driver_path.endswith('.exe'):
+                        driver_path_with_exe = self.driver_path + '.exe'
+                        if os.path.exists(driver_path_with_exe):
+                            service = Service(driver_path_with_exe)
+                            print(f"Using Windows ChromeDriver: {driver_path_with_exe}")
+                        else:
+                            # Check if there's a chromedriver.exe in the same directory
+                            driver_dir = os.path.dirname(self.driver_path)
+                            driver_name = "chromedriver.exe"
+                            alternative_path = os.path.join(driver_dir, driver_name)
+                            if os.path.exists(alternative_path):
+                                service = Service(alternative_path)
+                                print(f"Using alternative ChromeDriver path: {alternative_path}")
+                            else:
+                                print(f"Warning: ChromeDriver with .exe extension not found at {driver_path_with_exe}")
+                                print(f"Trying to use the original path: {self.driver_path}")
                     else:
-                        print(f"Warning: ChromeDriver with .exe extension not found at {driver_path_with_exe}")
-                        print(f"Trying to use the original path: {self.driver_path}")
+                        # Path already has .exe extension
+                        print(f"Using provided ChromeDriver path with .exe: {self.driver_path}")
 
                 driver = webdriver.Chrome(service=service, options=chrome_options)
                 # Lưu driver vào dictionary với key là username
@@ -56,6 +72,8 @@ class LoginModel:
                     self.drivers[username] = driver
                 except Exception as e2:
                     print(f"Error initializing ChromeDriver without service parameter: {e2}")
+                    print(f"Please make sure ChromeDriver is installed and compatible with your Chrome browser version.")
+                    print(f"You can download ChromeDriver from: https://chromedriver.chromium.org/downloads")
                     raise
 
             # Mở trình duyệt và truy cập vào URL đăng nhập
@@ -248,11 +266,21 @@ class LoginModel:
             print(f"Lỗi khi đăng nhập với tài khoản {username}: {e}")
             # Chụp ảnh màn hình khi gặp lỗi để debug
             try:
-                screenshot_path = f"error_screenshot_{username}_{int(time.time())}.png"
-                driver.save_screenshot(screenshot_path)
-                print(f"Đã lưu ảnh màn hình lỗi tại: {screenshot_path}")
-            except:
-                print("Không thể lưu ảnh màn hình lỗi")
+                # Check if driver is defined and initialized
+                if 'driver' in locals() and driver:
+                    # Create a directory for screenshots if it doesn't exist
+                    screenshots_dir = "error_screenshots"
+                    if not os.path.exists(screenshots_dir):
+                        os.makedirs(screenshots_dir)
+
+                    # Save screenshot with timestamp and username
+                    screenshot_path = os.path.join(screenshots_dir, f"error_screenshot_{username}_{int(time.time())}.png")
+                    driver.save_screenshot(screenshot_path)
+                    print(f"Đã lưu ảnh màn hình lỗi tại: {screenshot_path}")
+                else:
+                    print("Không thể lưu ảnh màn hình lỗi: Driver không được khởi tạo")
+            except Exception as screenshot_error:
+                print(f"Không thể lưu ảnh màn hình lỗi: {screenshot_error}")
             return False
 
     def close_driver(self, username):

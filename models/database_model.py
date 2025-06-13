@@ -16,14 +16,13 @@ class DatabaseModel:
         self.db_port = 3306
         self.db_name = "register"
         self.db_user = "root"
-        self.db_password = "root"
+        self.db_password = ""
 
         self.connection = None
         self.cursor = None
 
         # Connect to database and create tables
         self.connect()
-        self.create_tables()
 
     def connect(self):
         """Connect to the MySQL database"""
@@ -73,6 +72,7 @@ class DatabaseModel:
             self.connection.close()
 
     def create_tables(self):
+        print("[DEVTOOLS] Creating tables...")
         """Create the necessary tables if they don't exist"""
         if not self.connection or not self.cursor:
             print("Database connection not available, cannot create tables")
@@ -130,7 +130,7 @@ class DatabaseModel:
 
             if not user:
                 print(f"User '{username}' does not exist. Creating it...")
-                self.cursor.execute("INSERT INTO users (username, password, url, hours) VALUES (%s, %s, %s, %s)", 
+                self.cursor.execute("INSERT INTO users (username, password, url, hours) VALUES (%s, %s, %s, %s)",
                                   (username, password, primary_url, 1))
                 self.connection.commit()
                 print(f"User '{username}' created successfully.")
@@ -148,7 +148,7 @@ class DatabaseModel:
 
                 if not course:
                     print(f"Adding course for user '{username}'...")
-                    self.cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)", 
+                    self.cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)",
                                       (user_id, "Cấu tạo và sửa chữa thông thường xe ô tô", course_url, ""))
                     self.connection.commit()
                     print(f"Course added for user '{username}'.")
@@ -157,7 +157,7 @@ class DatabaseModel:
 
                 # Update the user's password and URL if needed
                 if user['password'] != password or user['url'] != primary_url:
-                    self.cursor.execute("UPDATE users SET password = %s, url = %s WHERE username = %s", 
+                    self.cursor.execute("UPDATE users SET password = %s, url = %s WHERE username = %s",
                                       (password, primary_url, username))
                     self.connection.commit()
                     print(f"User '{username}' updated successfully.")
@@ -174,7 +174,7 @@ class DatabaseModel:
 
                 if not course:
                     print(f"Adding course for user '{username}'...")
-                    self.cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)", 
+                    self.cursor.execute("INSERT INTO courses (user_id, name, url, current_lesson) VALUES (%s, %s, %s, %s)",
                                       (user_id, "Cấu tạo và sửa chữa thông thường xe ô tô", course_url, ""))
                     self.connection.commit()
                     print(f"Course added for user '{username}'.")
