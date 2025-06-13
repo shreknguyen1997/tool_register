@@ -1,12 +1,13 @@
 import sys
 import os
-import time
+from selenium import webdriver
+import requests
+import json
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, 
                             QLineEdit, QHBoxLayout, QSpacerItem, QSizePolicy, QMessageBox,
                             QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, 
                             QAbstractItemView, QFrame, QToolButton, QTabWidget)
 from PyQt5.QtCore import Qt, QSize, QTimer
-from selenium.webdriver.common.by import By
 from controllers.login_controller import LoginController
 from controllers.user_controller import UserController
 from controllers.course_controller import CourseController
@@ -18,6 +19,17 @@ from models.database_model import DatabaseModel
 from models.course_navigation_model import CourseNavigationModel
 from views.add_user_dialog import AddUserDialog
 from views.add_course_dialog import AddCourseDialog
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service 
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
+import time
+
+chrome_options = Options()
+chrome_options.add_argument("--remote-debugging-port=9222")  # Enable remote debugging
+chrome_options.add_argument("--auto-open-devtools-for-tabs")  # Automatically open DevTools
+
+driver = webdriver.Chrome(options=chrome_options)
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -556,6 +568,9 @@ class MainWindow(QWidget):
                         course.url, 
                         current_url
                     )
+                    time.sleep(3)
+
+
 
                     print(f"[LESSON CHECK] Updated current lesson to: {current_url}")
                     print(f"[LESSON CHECK] Successfully found and navigated to incomplete lesson at {datetime.datetime.now().strftime('%H:%M:%S')}")
@@ -820,6 +835,80 @@ class MainWindow(QWidget):
                                             detail_url
                                         )
                                         print(f"[LESSON CHECK] Updated course with detail URL in database")
+
+                                        # Now that we're on the lesson details page, fetch countdown data
+                                        print(f"[LESSON CHECK] Fetching countdown data from lesson details page...")
+                                        end_time = self.fetch_countdown_data(driver)
+                                        print(f"[COUNTDOWN] Extracted end_time timestamp: {end_time}")
+                                        if end_time:
+                                            # Calculate time remaining
+                                            current_timestamp = time.time()
+                                            time_remaining = end_time - current_timestamp
+
+                                            if time_remaining > 0:
+                                                print(f"[COUNTDOWN] Time remaining: {time_remaining:.2f} seconds")
+
+                                                # Set up a timer to navigate to the next lesson when end_time is reached
+                                                # We'll use a loop with small sleep intervals to check if end_time has been reached
+                                                while time.time() < end_time:
+                                                    # Sleep for a short time (1 second)
+                                                    time.sleep(1)
+
+                                                    # Calculate and display remaining time
+                                                    remaining = end_time - time.time()
+                                                    if remaining > 0:
+                                                        print(f"[COUNTDOWN] Remaining: {remaining:.2f} seconds")
+                                                    else:
+                                                        print("[COUNTDOWN] Time's up! Navigating to next lesson...")
+                                                        break
+
+                                                # Time's up, navigate to the next lesson
+                                                print("[COUNTDOWN] Attempting to navigate to the next lesson...")
+
+                                                # Try to find and click the next button
+                                                try:
+                                                    # Look for common next button selectors
+                                                    next_button_selectors = [
+                                                        "button.next", "a.next", ".next-button", ".next-lesson", 
+                                                        "button[aria-label='Next']", "button:contains('Next')",
+                                                        "a:contains('Next')", ".btn-next", "#next-button",
+                                                        "button.o_wslides_fs_navigate_btn[data-slide-direction='1']"
+                                                    ]
+
+                                                    next_button = None
+                                                    for selector in next_button_selectors:
+                                                        try:
+                                                            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                                                            if elements:
+                                                                next_button = elements[0]
+                                                                break
+                                                        except:
+                                                            continue
+
+                                                    if next_button:
+                                                        print(f"[COUNTDOWN] Found next button, clicking it...")
+                                                        next_button.click()
+                                                        time.sleep(3)  # Wait for the next page to load
+
+                                                        # Update the course with the new URL
+                                                        current_url = driver.current_url
+                                                        course.current_lesson = current_url
+                                                        self.course_controller.update_course(
+                                                            course.id, 
+                                                            course.name, 
+                                                            course.url, 
+                                                            current_url
+                                                        )
+                                                        print(f"[COUNTDOWN] Successfully navigated to next lesson: {current_url}")
+                                                        return
+                                                    else:
+                                                        print("[COUNTDOWN] Next button not found, continuing with regular lesson search...")
+                                                except Exception as e:
+                                                    print(f"[COUNTDOWN] Error navigating to next lesson: {e}")
+                                                    print("[COUNTDOWN] Continuing with regular lesson search...")
+                                            else:
+                                                print(f"[COUNTDOWN] End time has already passed, continuing with regular lesson search...")
+
                                         break
                                 except Exception as detail_error:
                                     print(f"[LESSON CHECK] Error interacting with detail element: {detail_error}")
@@ -959,6 +1048,193 @@ class MainWindow(QWidget):
             list: List of dictionaries containing lesson information (url, title, completion_percentage)
         """
         return self.incomplete_lessons
+
+    def fetch_countdown_data(self, driver):
+        """
+        Fetch countdown data from the network tab in browser's developer tools
+
+        Args:
+            driver: WebDriver instance
+
+        Returns:
+            float: end_time value from the network response, or None if failed
+        """
+        try:
+            # Get the current URL
+            current_url = driver.current_url
+            print(f"[DEVTOOLS] Current URL: {current_url}")
+
+            print(f"[DEVTOOLS] Opening DevTools and checking network tab...")
+
+            # Log instructions for the user
+            print(f"[DEVTOOLS] MANUAL STEPS:")
+            print(f"[DEVTOOLS] 1. Press F12 or right-click and select 'Inspect' to open DevTools")
+            print(f"[DEVTOOLS] 2. Click on the 'Network' tab in DevTools")
+            print(f"[DEVTOOLS] 3. Look for requests to 'countdown-start'")
+            print(f"[DEVTOOLS] 4. Click on the request to see details")
+            print(f"[DEVTOOLS] 5. Check the 'Response' tab to see the JSON data")
+            print(f"[DEVTOOLS] 6. Look for 'end_time' in the response")
+
+            # Try to extract the end_time using JavaScript to make a fetch request
+            print(f"[DEVTOOLS] Trying to extract end_time from network response...")
+            script = """
+            // Function to make a fetch request to the countdown API
+            async function fetchCountdownData() {
+                try {
+                    console.log("[DEVTOOLS] Making fetch request to countdown API...");
+
+                    // Make the request using the browser's fetch API
+                    const response = await fetch('https://hoclythuyetlaixe.eco-tek.com.vn/slide/countdown-start/');
+                    console.log("[DEVTOOLS] Received response:", response);
+
+                    // Check if the request was successful
+                    if (!response.ok) {
+                        console.error("[DEVTOOLS] HTTP error:", response.status);
+                        return { error: `HTTP error! status: ${response.status}` };
+                    }
+
+                    // Parse the JSON response
+                    console.log("[DEVTOOLS] Parsing JSON response...");
+                    const data = await response.json();
+                    console.log("[DEVTOOLS] Parsed data:", data);
+
+                    // Extract the end_time from the response
+                    if (data && data.result && data.result.end_time) {
+                        console.log("[DEVTOOLS] Found end_time in response:", data.result.end_time);
+                        return data.result.end_time;
+                    } else {
+                        console.error("[DEVTOOLS] Could not find end_time in response");
+                        return null;
+                    }
+                } catch (error) {
+                    console.error("[DEVTOOLS] Error fetching countdown data:", error);
+                    return { error: error.toString() };
+                }
+            }
+
+            // Execute the function and return the result
+            console.log("[DEVTOOLS] Starting fetch operation...");
+            return fetchCountdownData();
+            """
+
+            # Execute the script and get the result
+            print(f"[DEVTOOLS] Executing JavaScript to fetch countdown data...")
+            result = driver.execute_script(script)
+            print(f"[DEVTOOLS] JavaScript execution result: {result}")
+
+            # Check if the result is a promise (async function)
+            if isinstance(result, dict) and 'error' in result:
+                print(f"[DEVTOOLS] Error fetching countdown data: {result['error']}")
+                print(f"[DEVTOOLS] Trying alternative approach...")
+
+                # Try an alternative approach using direct JavaScript execution
+                alternative_script = """
+                // Function to extract end_time from the page
+                function extractEndTime() {
+                    try {
+                        // Try to find the countdown-start API response in the browser's network log
+                        // This is a simplified approach and may not work in all cases
+                        console.log("[DEVTOOLS] Looking for countdown data in the page...");
+
+                        // Check if there's a global countdown variable
+                        if (typeof window.countdownEndTime !== 'undefined') {
+                            console.log("[DEVTOOLS] Found global countdownEndTime variable:", window.countdownEndTime);
+                            return window.countdownEndTime;
+                        }
+
+                        // Look for any script tags that might contain countdown information
+                        const scripts = document.querySelectorAll("script");
+                        for (const script of scripts) {
+                            const scriptContent = script.textContent;
+                            if (scriptContent.includes("countdown") || scriptContent.includes("timer") || 
+                                scriptContent.includes("end_time")) {
+                                console.log("[DEVTOOLS] Found script with countdown content");
+
+                                // Look for patterns like "endTime = 1234567890"
+                                const endTimeMatch = scriptContent.match(/endTime\s*=\s*([0-9.]+)/);
+                                if (endTimeMatch) {
+                                    console.log("[DEVTOOLS] Found endTime in script:", endTimeMatch[1]);
+                                    return parseFloat(endTimeMatch[1]);
+                                }
+
+                                // Look for patterns like "end_time: 1234567890"
+                                const endTimeMatch2 = scriptContent.match(/end_time\s*:\s*([0-9.]+)/);
+                                if (endTimeMatch2) {
+                                    console.log("[DEVTOOLS] Found end_time in script:", endTimeMatch2[1]);
+                                    return parseFloat(endTimeMatch2[1]);
+                                }
+                            }
+                        }
+
+                        // As a fallback, create a timestamp for 30 minutes from now
+                        const fallbackEndTime = Math.floor(Date.now() / 1000) + 30 * 60; // 30 minutes from now
+                        console.log("[DEVTOOLS] Using fallback end time (30 minutes from now):", fallbackEndTime);
+                        return fallbackEndTime;
+                    } catch (error) {
+                        console.error("[DEVTOOLS] Error extracting end_time:", error);
+
+                        // Return a fallback value in case of error
+                        const fallbackEndTime = Math.floor(Date.now() / 1000) + 30 * 60; // 30 minutes from now
+                        console.log("[DEVTOOLS] Using fallback end time after error:", fallbackEndTime);
+                        return fallbackEndTime;
+                    }
+                }
+
+                // Execute the function and return the result
+                return extractEndTime();
+                """
+
+                end_time = driver.execute_script(alternative_script)
+                print(f"[DEVTOOLS] Alternative approach result: {end_time}")
+
+                if end_time:
+                    print(f"[DEVTOOLS] Extracted end_time using alternative approach: {end_time}")
+
+                    # Format the timestamp as a human-readable date
+                    import datetime
+                    end_time_date = datetime.datetime.fromtimestamp(end_time)
+                    print(f"[DEVTOOLS] End time as date: {end_time_date}")
+
+                    return end_time
+            elif end_time:
+                print(f"[DEVTOOLS] Extracted end_time from network response: {end_time}")
+
+                # Format the timestamp as a human-readable date
+                import datetime
+                end_time_date = datetime.datetime.fromtimestamp(end_time)
+                print(f"[DEVTOOLS] End time as date: {end_time_date}")
+
+                return end_time
+
+            # If we couldn't extract the end_time, use a fallback value
+            print("[DEVTOOLS] Could not extract end_time, using fallback")
+
+            # Use a fallback value (30 minutes from now)
+            import time
+            fallback_end_time = time.time() + 30 * 60  # 30 minutes from now
+            print(f"[DEVTOOLS] Using fallback end time: {fallback_end_time}")
+
+            # Format the timestamp as a human-readable date
+            import datetime
+            end_time_date = datetime.datetime.fromtimestamp(fallback_end_time)
+            print(f"[DEVTOOLS] Fallback end time as date: {end_time_date}")
+
+            return fallback_end_time
+
+        except Exception as e:
+            print(f"[DEVTOOLS] Error fetching countdown data: {e}")
+
+            # Use a fallback value (30 minutes from now) in case of error
+            import time
+            fallback_end_time = time.time() + 30 * 60  # 30 minutes from now
+            print(f"[DEVTOOLS] Using fallback end time after error: {fallback_end_time}")
+
+            # Format the timestamp as a human-readable date
+            import datetime
+            end_time_date = datetime.datetime.fromtimestamp(fallback_end_time)
+            print(f"[DEVTOOLS] Fallback end time as date: {end_time_date}")
+
+            return fallback_end_time
 
     def navigate_to_lesson(self, lesson_index, course):
         """
