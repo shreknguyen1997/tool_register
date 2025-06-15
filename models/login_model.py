@@ -1,7 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 import time
-import os
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
@@ -30,6 +29,9 @@ class LoginModel:
             # Tạo một driver mới cho user này
             service = Service(self.driver_path)
             chrome_options = Options()
+            # Add stability options
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--no-sandbox")
             # Enable DevTools for network monitoring
             chrome_options.add_argument("--remote-debugging-port=9222")  # Enable remote debugging
             chrome_options.add_argument("--auto-open-devtools-for-tabs")  # Automatically open DevTools
@@ -38,35 +40,61 @@ class LoginModel:
 
             # Khởi tạo ChromeDriver mới
             try:
-                # For Windows, make sure we're using the .exe extension
+                # On Windows, try initializing without service parameter first
+                import os  # Make sure os is imported in this scope
                 if os.name == 'nt':
-                    # First check if the path already has .exe extension
-                    if not self.driver_path.endswith('.exe'):
-                        driver_path_with_exe = self.driver_path + '.exe'
-                        if os.path.exists(driver_path_with_exe):
-                            service = Service(driver_path_with_exe)
-                            print(f"Using Windows ChromeDriver: {driver_path_with_exe}")
-                        else:
-                            # Check if there's a chromedriver.exe in the same directory
-                            driver_dir = os.path.dirname(self.driver_path)
-                            driver_name = "chromedriver.exe"
-                            alternative_path = os.path.join(driver_dir, driver_name)
-                            if os.path.exists(alternative_path):
-                                service = Service(alternative_path)
-                                print(f"Using alternative ChromeDriver path: {alternative_path}")
-                            else:
-                                print(f"Warning: ChromeDriver with .exe extension not found at {driver_path_with_exe}")
-                                print(f"Trying to use the original path: {self.driver_path}")
-                    else:
-                        # Path already has .exe extension
-                        print(f"Using provided ChromeDriver path with .exe: {self.driver_path}")
+                    print("Windows detected, trying to initialize ChromeDriver without service parameter first...")
+                    try:
+                        # No need to add these options again
+                        # They are already added at the beginning of the function
 
-                driver = webdriver.Chrome(service=service, options=chrome_options)
-                # Lưu driver vào dictionary với key là username
-                self.drivers[username] = driver
+                        driver = webdriver.Chrome(options=chrome_options)
+                        print("ChromeDriver initialized successfully without service parameter!")
+                        # Lưu driver vào dictionary với key là username
+                        self.drivers[username] = driver
+                    except Exception as e_no_service:
+                        print(f"Error initializing ChromeDriver without service parameter: {e_no_service}")
+                        print("Falling back to service parameter approach...")
+
+                        # Try with service parameter as fallback
+                        # First check if the path already has .exe extension
+                        if not self.driver_path.endswith('.exe'):
+                            driver_path_with_exe = self.driver_path + '.exe'
+                            if os.path.exists(driver_path_with_exe):
+                                service = Service(driver_path_with_exe)
+                                print(f"Using Windows ChromeDriver: {driver_path_with_exe}")
+                            else:
+                                # Check if there's a chromedriver.exe in the same directory
+                                driver_dir = os.path.dirname(self.driver_path)
+                                driver_name = "chromedriver.exe"
+                                alternative_path = os.path.join(driver_dir, driver_name)
+                                if os.path.exists(alternative_path):
+                                    service = Service(alternative_path)
+                                    print(f"Using alternative ChromeDriver path: {alternative_path}")
+                                else:
+                                    print(f"Warning: ChromeDriver with .exe extension not found at {driver_path_with_exe}")
+                                    print(f"Trying to use the original path: {self.driver_path}")
+                        else:
+                            # Path already has .exe extension
+                            print(f"Using provided ChromeDriver path with .exe: {self.driver_path}")
+
+                        # No need to add these options again
+                        # They are already added at the beginning of the function
+
+                        driver = webdriver.Chrome(service=service, options=chrome_options)
+                        # Lưu driver vào dictionary với key là username
+                        self.drivers[username] = driver
+                else:
+                    # For non-Windows systems, use the service parameter approach
+                    # No need to add these options again
+                    # They are already added at the beginning of the function
+
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    # Lưu driver vào dictionary với key là username
+                    self.drivers[username] = driver
             except Exception as e:
                 print(f"Error initializing ChromeDriver: {e}")
-                print("Trying to initialize ChromeDriver without service parameter...")
+                print("Trying to initialize ChromeDriver without service parameter as last resort...")
                 try:
                     driver = webdriver.Chrome(options=chrome_options)
                     self.drivers[username] = driver
@@ -247,6 +275,35 @@ class LoginModel:
                 original_url = driver.current_url
                 print(f"Đăng nhập thành công, đang ở trang: {original_url}")
 
+                # Open DevTools programmatically after successful login
+                try:
+                    print("Đang mở DevTools...")
+                    # Use JavaScript to open DevTools with Network panel active
+                    driver.execute_script("""
+                    // First open DevTools
+                    setTimeout(function() { 
+                        // Use debugger statement to open DevTools
+                        debugger; 
+
+                        // Try to focus on Network panel after DevTools is opened
+                        setTimeout(function() {
+                            // This will work if DevTools is already open
+                            if (window.chrome && window.chrome.devtools) {
+                                try {
+                                    // Try to switch to Network panel
+                                    chrome.devtools.panels.setOpenPanel('network');
+                                    console.log('Switched to Network panel');
+                                } catch(e) {
+                                    console.error('Error switching to Network panel:', e);
+                                }
+                            }
+                        }, 1000);
+                    }, 1000);
+                    """)
+                    print("DevTools đã được mở thành công")
+                except Exception as devtools_error:
+                    print(f"Lỗi khi mở DevTools: {devtools_error}")
+
                 # Try to navigate to the course URL after successful login
                 try:
                     course_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
@@ -254,6 +311,35 @@ class LoginModel:
                     driver.get(course_url)
                     time.sleep(5)  # Wait for the page to load
                     print(f"Đã chuyển hướng đến trang: {driver.current_url}")
+
+                    # Open DevTools again after navigation
+                    try:
+                        print("Đang mở DevTools sau khi chuyển hướng...")
+                        # Use JavaScript to open DevTools with Network panel active
+                        driver.execute_script("""
+                        // First open DevTools
+                        setTimeout(function() { 
+                            // Use debugger statement to open DevTools
+                            debugger; 
+
+                            // Try to focus on Network panel after DevTools is opened
+                            setTimeout(function() {
+                                // This will work if DevTools is already open
+                                if (window.chrome && window.chrome.devtools) {
+                                    try {
+                                        // Try to switch to Network panel
+                                        chrome.devtools.panels.setOpenPanel('network');
+                                        console.log('Switched to Network panel');
+                                    } catch(e) {
+                                        console.error('Error switching to Network panel:', e);
+                                    }
+                                }
+                            }, 1000);
+                        }, 1000);
+                        """)
+                        print("DevTools đã được mở thành công sau khi chuyển hướng")
+                    except Exception as devtools_error:
+                        print(f"Lỗi khi mở DevTools sau khi chuyển hướng: {devtools_error}")
                 except Exception as e:
                     print(f"Lỗi khi chuyển hướng đến trang khóa học: {e}")
 
@@ -268,19 +354,25 @@ class LoginModel:
             try:
                 # Check if driver is defined and initialized
                 if 'driver' in locals() and driver:
-                    # Create a directory for screenshots if it doesn't exist
-                    screenshots_dir = "error_screenshots"
-                    if not os.path.exists(screenshots_dir):
-                        os.makedirs(screenshots_dir)
-
-                    # Save screenshot with timestamp and username
-                    screenshot_path = os.path.join(screenshots_dir, f"error_screenshot_{username}_{int(time.time())}.png")
+                    # Save screenshot directly in the project root directory
+                    screenshot_path = f"error_screenshot_{username}_{int(time.time())}.png"
                     driver.save_screenshot(screenshot_path)
                     print(f"Đã lưu ảnh màn hình lỗi tại: {screenshot_path}")
                 else:
                     print("Không thể lưu ảnh màn hình lỗi: Driver không được khởi tạo")
             except Exception as screenshot_error:
                 print(f"Không thể lưu ảnh màn hình lỗi: {screenshot_error}")
+                # Try with absolute path as fallback
+                try:
+                    if 'driver' in locals() and driver:
+                        import os
+                        # Get the current working directory (absolute path)
+                        current_dir = os.getcwd()
+                        screenshot_path = os.path.join(current_dir, f"error_screenshot_{username}_{int(time.time())}.png")
+                        driver.save_screenshot(screenshot_path)
+                        print(f"Đã lưu ảnh màn hình lỗi tại đường dẫn tuyệt đối: {screenshot_path}")
+                except Exception as fallback_error:
+                    print(f"Không thể lưu ảnh màn hình lỗi (cả phương án dự phòng): {fallback_error}")
             return False
 
     def close_driver(self, username):

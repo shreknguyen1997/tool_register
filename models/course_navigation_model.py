@@ -799,17 +799,21 @@ class CourseNavigationModel:
 
                     # Take a screenshot before clicking (if possible)
                     try:
-                        # Create a directory for screenshots if it doesn't exist
-                        screenshots_dir = "lesson_screenshots"
-                        if not os.path.exists(screenshots_dir):
-                            os.makedirs(screenshots_dir)
-
-                        # Save screenshot with timestamp
-                        screenshot_path = os.path.join(screenshots_dir, f"next_button_screenshot_{int(time.time())}.png")
+                        # Save screenshot directly in the project root directory
+                        screenshot_path = f"next_button_screenshot_{int(time.time())}.png"
                         self.driver.save_screenshot(screenshot_path)
                         print(f"[LESSON STATUS] Saved screenshot before clicking next button: {screenshot_path}")
                     except Exception as ss_error:
                         print(f"[LESSON STATUS] Could not save screenshot: {ss_error}")
+                        # Try with absolute path as fallback
+                        try:
+                            # Get the current working directory (absolute path)
+                            current_dir = os.getcwd()
+                            screenshot_path = os.path.join(current_dir, f"next_button_screenshot_{int(time.time())}.png")
+                            self.driver.save_screenshot(screenshot_path)
+                            print(f"[LESSON STATUS] Saved screenshot at absolute path: {screenshot_path}")
+                        except Exception as fallback_error:
+                            print(f"[LESSON STATUS] Could not save screenshot (fallback also failed): {fallback_error}")
 
                     # Click the next button
                     next_button.click()

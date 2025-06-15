@@ -1001,12 +1001,13 @@ class MainWindow(QWidget):
     def fetch_countdown_data(self, driver):
         """
         Fetch countdown data from the network tab in browser's developer tools using CDP
+        and return the end_time as a datetime object.
 
         Args:
             driver: WebDriver instance
 
         Returns:
-            float: end_time value from the network response, or None if failed
+            datetime: end_time value from the network response, or None if failed
         """
         try:
             # Get the current URL
@@ -1017,7 +1018,7 @@ class MainWindow(QWidget):
             print(f"[DEVTOOLS] Using Chrome DevTools Protocol (CDP) to monitor network requests...")
 
             # Enable network monitoring using CDP
-            driver.execute_cdp_cmd('Network.enable', {})
+            devtools = driver.execute_cdp_cmd('Network.enable', {})  # Enable network monitoring
 
             # Define a function to log API requests
             def log_api_requests(request):
@@ -1030,10 +1031,15 @@ class MainWindow(QWidget):
                     print(f"[CDP] API Request URL: {url}")
                     print(f"[CDP] Request Method: {method}")
                     print(f"[CDP] Request Headers: {headers}")
-                    print(f"{url}")
+
                     # If it's the countdown API, log more details
                     if 'countdown-start' in url:
                         print(f"[CDP] Found countdown API request via CDP: {url}")
+                        # Try to extract response data if available
+                        response = request.get('response', {})
+                        if response:
+                            print(f"[CDP] Response status: {response.get('status')}")
+                            print(f"[CDP] Response body: {response.get('body', '')[:100]}...")  # First 100 chars
 
             # Set up the request interceptor
             try:
@@ -1042,327 +1048,36 @@ class MainWindow(QWidget):
             except Exception as e:
                 print(f"[CDP] Error setting up request interceptor: {e}")
 
-            # Use JavaScript to set up a global array to store network requests
-            print(f"[DEVTOOLS] Setting up network request interceptors...")
-            setup_result = driver.execute_script("""
-                try {
-                    // Initialize global array to store network requests
-                    console.log('[CDP] Initializing networkRequests array...');
-                    window.networkRequests = [];
-                    console.log('[CDP] networkRequests array initialized:', window.networkRequests);
-
-                    // Create a XMLHttpRequest proxy to capture requests
-                    console.log('[CDP] Setting up XMLHttpRequest proxy...');
-                    (function(open) {
-                        XMLHttpRequest.prototype.open = function(method, url) {
-                            this._url = url;
-                            this._method = method;
-                            this._startTime = new Date().getTime();
-
-                            console.log('[CDP] XMLHttpRequest intercepted:', method, url);
-
-                            // Add event listener for load event
-                            this.addEventListener('load', function() {
-                                try {
-                                    // Store request and response data
-                                    if (url.includes('countdown-start')) {
-                                        console.log('[CDP] Captured countdown API request:', url);
-                                        console.log('[CDP] Response status:', this.status);
-                                        console.log('[CDP] Response text:', this.responseText.substring(0, 100) + '...');
-
-                                        window.networkRequests.push({
-                                            url: url,
-                                            method: method,
-                                            status: this.status,
-                                            responseText: this.responseText,
-                                            responseTime: new Date().getTime() - this._startTime
-                                        });
-
-                                        // Log the number of captured requests
-                                        console.log('[CDP] Total captured requests:', window.networkRequests.length);
-                                    }
-                                } catch (e) {
-                                    console.error('[CDP] Error capturing request:', e);
-                                }
-                            });
-
-                            // Call the original open method
-                            return open.apply(this, arguments);
-                        };
-                    })(XMLHttpRequest.prototype.open);
-                    console.log('[CDP] XMLHttpRequest proxy set up successfully');
-
-                    // Also intercept fetch requests
-                    console.log('[CDP] Setting up fetch proxy...');
-                    (function(fetch) {
-                        window.fetch = function(url, options) {
-                            const startTime = new Date().getTime();
-
-                            // Check if the URL is a string or a Request object
-                            const urlString = typeof url === 'string' ? url : url.url;
-                            const method = options && options.method ? options.method : 'GET';
-
-                            console.log('[CDP] Fetch intercepted:', method, urlString);
-
-                            // Process all requests but log more details for countdown API requests
-                            const originalFetch = fetch.apply(this, arguments);
-
-                            return originalFetch.then(response => {
-                                // Clone the response to avoid consuming it
-                                const responseClone = response.clone();
-
-                                // Process the response
-                                return responseClone.text().then(responseText => {
-                                    if (urlString.includes('countdown-start')) {
-                                        console.log('[CDP] Captured countdown API fetch request:', urlString);
-                                        console.log('[CDP] Response status:', response.status);
-                                        console.log('[CDP] Response text:', responseText.substring(0, 100) + '...');
-
-                                        window.networkRequests.push({
-                                            url: urlString,
-                                            method: method,
-                                            status: response.status,
-                                            responseText: responseText,
-                                            responseTime: new Date().getTime() - startTime
-                                        });
-
-                                        // Log the number of captured requests
-                                        console.log('[CDP] Total captured requests:', window.networkRequests.length);
-                                    }
-
-                                    return response;
-                                }).catch(error => {
-                                    console.error('[CDP] Error processing fetch response:', error);
-                                    return response;
-                                });
-                            });
-                        };
-                    })(window.fetch);
-                    console.log('[CDP] Fetch proxy set up successfully');
-
-                    console.log('[CDP] Network request interceptors installed successfully');
-                    return { success: true, message: 'Network request interceptors installed successfully' };
-                } catch (error) {
-                    console.error('[CDP] Error setting up network request interceptors:', error);
-                    return { success: false, message: 'Error setting up network request interceptors: ' + error.message };
-                }
-            """)
-
-            # Log the result of setting up the network request interceptors
-            if isinstance(setup_result, dict):
-                if setup_result.get('success'):
-                    print(f"[DEVTOOLS] Network request interceptors set up successfully: {setup_result.get('message')}")
-                else:
-                    print(f"[DEVTOOLS] Error setting up network request interceptors: {setup_result.get('message')}")
-            else:
-                print(f"[DEVTOOLS] Unexpected result from setting up network request interceptors: {setup_result}")
-
-            # Make sure DevTools is fully initialized
-            print(f"[DEVTOOLS] Ensuring DevTools is fully initialized...")
-            time.sleep(2)  # Give DevTools time to initialize
-
             # Refresh the page to trigger network requests
             print(f"[DEVTOOLS] Refreshing page to capture network requests...")
             driver.refresh()
 
             # Wait for the page to load and network requests to be captured
-            import time
-            print(f"[DEVTOOLS] Waiting for page to load and network requests to be captured...")
-            time.sleep(7)  # Wait 7 seconds for requests to be captured (increased from 5 to 7)
+            time.sleep(5)  # Wait 5 seconds for requests to be captured
 
-            # Try to trigger the countdown API by interacting with the page
+            # Look for the countdown timer element in the page as a fallback
             try:
-                print(f"[DEVTOOLS] Trying to trigger countdown API by interacting with the page...")
+                # Find the section element with the countdown timer
+                countdown_section = driver.find_element(By.XPATH, "//*[@id='oe_structure_website_slides_lesson_top_1']/section")
 
-                # Scroll down to ensure all elements are loaded
-                print(f"[DEVTOOLS] Scrolling down to ensure all elements are loaded...")
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(1)
+                # Get the data-end-time attribute
+                end_time = countdown_section.get_attribute("data-end-time")
 
-                # Scroll back up
-                print(f"[DEVTOOLS] Scrolling back up...")
-                driver.execute_script("window.scrollTo(0, 0);")
-                time.sleep(1)
+                if end_time:
+                    print(f"[DEVTOOLS] Found end_time from page element: {end_time}")
+                    return float(end_time)
+                else:
+                    print(f"[DEVTOOLS] Could not find data-end-time attribute in countdown section")
+            except Exception as element_error:
+                print(f"[DEVTOOLS] Error finding countdown element: {element_error}")
 
-                # Try to find and click on any buttons that might trigger the countdown
-                print(f"[DEVTOOLS] Looking for buttons that might trigger the countdown...")
-                button_selectors = [
-                    "//button[contains(@class, 'start') or contains(@class, 'begin') or contains(@class, 'continue')]",
-                    "//a[contains(@class, 'start') or contains(@class, 'begin') or contains(@class, 'continue')]",
-                    "//button[contains(text(), 'Start') or contains(text(), 'Begin') or contains(text(), 'Continue')]",
-                    "//a[contains(text(), 'Start') or contains(text(), 'Begin') or contains(text(), 'Continue')]",
-                    "//button",  # Try all buttons as a last resort
-                    "//a[contains(@href, 'javascript')]"  # Try all JavaScript links
-                ]
-
-                buttons_found = False
-                for selector in button_selectors:
-                    buttons = driver.find_elements(By.XPATH, selector)
-                    if buttons:
-                        buttons_found = True
-                        print(f"[DEVTOOLS] Found {len(buttons)} potential trigger buttons with selector: {selector}")
-                        for button in buttons:
-                            try:
-                                button_text = button.text.strip() if button.text else "No text"
-                                button_class = button.get_attribute("class") or "No class"
-                                print(f"[DEVTOOLS] Clicking button: '{button_text}' with class '{button_class}'")
-
-                                # Try to scroll to the button to make sure it's visible
-                                driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                                time.sleep(0.5)
-
-                                # Click the button
-                                button.click()
-                                print(f"[DEVTOOLS] Button clicked successfully")
-                                time.sleep(2)  # Wait for potential API calls
-
-                                # Check if any network requests were captured after clicking
-                                network_requests = driver.execute_script("return window.networkRequests || [];")
-                                print(f"[DEVTOOLS] After clicking button: {len(network_requests)} network requests captured")
-
-                                # If we found the countdown API request, we can stop clicking buttons
-                                for request in network_requests:
-                                    if 'countdown-start' in request.get('url', ''):
-                                        print(f"[DEVTOOLS] Found countdown API request after clicking button: {request.get('url')}")
-                                        break
-                            except Exception as button_error:
-                                print(f"[DEVTOOLS] Error clicking button: {button_error}")
-
-                if not buttons_found:
-                    print(f"[DEVTOOLS] No potential trigger buttons found with any selector")
-
-                    # Try to trigger the countdown API by simulating user interaction with the page
-                    print(f"[DEVTOOLS] Trying to trigger countdown API by simulating user interaction...")
-
-                    # Try to click on the page body
-                    try:
-                        body = driver.find_element(By.TAG_NAME, "body")
-                        body.click()
-                        print(f"[DEVTOOLS] Clicked on page body")
-                        time.sleep(1)
-                    except Exception as body_error:
-                        print(f"[DEVTOOLS] Error clicking on page body: {body_error}")
-
-                    # Try to press some keys
-                    try:
-                        body = driver.find_element(By.TAG_NAME, "body")
-                        body.send_keys(Keys.PAGE_DOWN)
-                        print(f"[DEVTOOLS] Pressed PAGE_DOWN key")
-                        time.sleep(1)
-                        body.send_keys(Keys.PAGE_UP)
-                        print(f"[DEVTOOLS] Pressed PAGE_UP key")
-                        time.sleep(1)
-                    except Exception as keys_error:
-                        print(f"[DEVTOOLS] Error pressing keys: {keys_error}")
-            except Exception as trigger_error:
-                print(f"[DEVTOOLS] Error trying to trigger countdown API: {trigger_error}")
-
-            # Get the captured network requests
-            network_requests = driver.execute_script("return window.networkRequests || [];")
-            print(f"[DEVTOOLS] Captured {len(network_requests)} network requests")
-
-            # Log more details about the captured requests
-            if len(network_requests) == 0:
-                print(f"[DEVTOOLS] WARNING: No network requests captured. This might be because DevTools was not opened before navigating to the page.")
-                print(f"[DEVTOOLS] Make sure DevTools is opened before navigating to the lesson detail page.")
-                print(f"[DEVTOOLS] Current URL: {driver.current_url}")
-            else:
-                print(f"[DEVTOOLS] Network requests captured successfully. Looking for countdown API request...")
-
-            # Look for the countdown API request
-            countdown_request = None
-            print(f"[DEVTOOLS] Looking for countdown API request in {len(network_requests)} captured requests")
-
-            # First, log all captured requests to help diagnose issues
-            print(f"[DEVTOOLS] All captured requests:")
-            for i, request in enumerate(network_requests):
-                url = request.get('url', '')
-                method = request.get('method', '')
-                status = request.get('status', '')
-                print(f"[DEVTOOLS] Request {i+1}: {method} {url} (Status: {status})")
-
-            # Now look for the countdown API request
-            for request in network_requests:
-                url = request.get('url', '')
-                if 'countdown-start' in url:
-                    countdown_request = request
-                    print(f"[DEVTOOLS] Found countdown API request: {url}")
-                    print(f"[DEVTOOLS] Status: {request.get('status')}")
-                    print(f"[DEVTOOLS] Response time: {request.get('responseTime')}ms")
-                    break
-
-            # Check if the countdown API request was found
-            if not countdown_request:
-                print(f"[DEVTOOLS] WARNING: Countdown API request not found in captured requests!")
-                print(f"[DEVTOOLS] This might be because:")
-                print(f"[DEVTOOLS] 1. DevTools was not opened before navigating to the page")
-                print(f"[DEVTOOLS] 2. The countdown API is not being called on this page")
-                print(f"[DEVTOOLS] 3. The network request interceptors are not working correctly")
-                print(f"[DEVTOOLS] 4. The countdown API URL has changed")
-                print(f"[DEVTOOLS] Try refreshing the page or navigating to a different lesson")
-
-            if countdown_request and 'responseText' in countdown_request:
-                print(f"[DEVTOOLS] Found countdown API response")
-
-                # Try to parse the response data
-                try:
-                    # Parse the JSON response
-                    import json
-                    response_text = countdown_request.get('responseText', '{}')
-                    data = json.loads(response_text)
-                    print(f"[DEVTOOLS] Response data: {data}")
-
-                    # Extract the end_time from the response
-                    if data and 'result' in data and 'end_time' in data['result']:
-                        end_time = data['result']['end_time']
-                        print(f"[DEVTOOLS] Extracted end_time: {end_time}")
-
-                        # Format the timestamp as a human-readable date
-                        import datetime
-                        end_time_date = datetime.datetime.fromtimestamp(end_time)
-                        print(f"[DEVTOOLS] End time as date: {end_time_date}")
-
-                        return end_time
-                except Exception as json_error:
-                    print(f"[DEVTOOLS] Error parsing JSON response: {json_error}")
-                    print(f"[DEVTOOLS] Raw response text: {response_text[:200]}...")  # Print first 200 chars
-
-            # If we couldn't get the end_time from CDP, try to find it in the page
-            print(f"[DEVTOOLS] Trying to find end_time in the page...")
-            try:
-                # Look for data-end-time attribute in section elements
-                section_script = """
-                // Look for data-end-time attribute in section elements
-                const sections = document.querySelectorAll("section");
-                for (const section of sections) {
-                    const endTimeAttr = section.getAttribute("data-end-time");
-                    if (endTimeAttr) {
-                        console.log("[DEVTOOLS] Found data-end-time attribute:", endTimeAttr);
-                        return parseFloat(endTimeAttr);
-                    }
-                }
-                return null;
-                """
-                section_end_time = driver.execute_script(section_script)
-                if section_end_time:
-                    print(f"[DEVTOOLS] Found end_time in section element: {section_end_time}")
-
-                    # Format the timestamp as a human-readable date
-                    import datetime
-                    end_time_date = datetime.datetime.fromtimestamp(section_end_time)
-                    print(f"[DEVTOOLS] End time as date: {end_time_date}")
-
-                    return section_end_time
-            except Exception as section_error:
-                print(f"[DEVTOOLS] Error finding end_time in section elements: {section_error}")
-
-            # If we still couldn't extract the end_time, use a fallback value
+            # If we couldn't extract the end_time, use a fallback value
             print("[DEVTOOLS] Could not extract end_time, using fallback")
 
             # Use a fallback value (30 minutes from now)
             import time
             fallback_end_time = time.time() + 30 * 60  # 30 minutes from now
-            print(f"[DEVTOOLS] Using fallback end time: {fallback_end_time}")
+            print(f"[DEVTOOLS] Using fallback end time (30 minutes from now): {fallback_end_time}")
 
             # Format the timestamp as a human-readable date
             import datetime
@@ -1373,20 +1088,7 @@ class MainWindow(QWidget):
 
         except Exception as e:
             print(f"[DEVTOOLS] Error fetching countdown data: {e}")
-            import traceback
-            traceback.print_exc()
-
-            # Use a fallback value (30 minutes from now) in case of error
-            import time
-            fallback_end_time = time.time() + 30 * 60  # 30 minutes from now
-            print(f"[DEVTOOLS] Using fallback end time after error: {fallback_end_time}")
-
-            # Format the timestamp as a human-readable date
-            import datetime
-            end_time_date = datetime.datetime.fromtimestamp(fallback_end_time)
-            print(f"[DEVTOOLS] Fallback end time as date: {end_time_date}")
-
-            return fallback_end_time
+            return None
 
     def navigate_to_lesson(self, lesson_index, course):
         """
