@@ -1,3 +1,5 @@
+import os
+import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 import time
@@ -11,10 +13,25 @@ class LoginModel:
         Khởi tạo model với đường dẫn đến ChromeDriver.
         :param driver_path: Đường dẫn đến ChromeDriver (Cần phải cung cấp)
         """
-        self.driver_path = driver_path
+        self.driver_path = {}
         # Lưu trữ các driver instances cho mỗi user
         self.drivers = {}
         print("LoginModel đã được khởi tạo.")
+
+    def get_chromedriver_path(self):
+        if getattr(sys, 'frozen', False):
+            # Nếu ứng dụng được đóng gói (ví dụ với PyInstaller), sử dụng _MEIPASS
+            base_path = sys._MEIPASS
+        else:
+            # Nếu không, lấy đường dẫn thư mục của file hiện tại
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            base_path = os.path.dirname(base_path)  # Đi lên 1 cấp để đến thư mục gốc của dự án
+
+            # Đảm bảo chromedriver có trong thư mục 'drivers'
+        chromedriver_path = os.path.join(base_path, "chromedriver", "chromedriver")
+
+        print('chromedriver_path', chromedriver_path)
+        return chromedriver_path
 
     def login(self, url, username, password):
         """
@@ -26,8 +43,8 @@ class LoginModel:
         :return: True nếu đăng nhập thành công, False nếu thất bại.
         """
         try:
+            print(f"{self.driver_path}")
             # Tạo một driver mới cho user này
-            service = Service(self.driver_path)
             chrome_options = Options()
             # Add stability options
             chrome_options.add_argument("--disable-dev-shm-usage")
@@ -37,6 +54,14 @@ class LoginModel:
             chrome_options.add_argument("--auto-open-devtools-for-tabs")  # Automatically open DevTools
             # Có thể thêm các options khác nếu cần
             # chrome_options.add_argument("--headless")  # Chạy ẩn (không hiển thị giao diện)
+            self.driver_path = self.get_chromedriver_path()
+            # Khởi tạo Service với chromedriver path
+            self.service = Service(self.driver_path)
+
+            print(f"Service{self.service}")
+            self.driver = webdriver.Chrome(service=self.service, options=chrome_options)
+            print("webdriver",webdriver)
+            self.driver.execute_cdp_cmd('Network.enable', {})
 
             # Khởi tạo ChromeDriver mới
             try:
@@ -108,6 +133,28 @@ class LoginModel:
             print(f"Đang mở trình duyệt mới cho {username} và truy cập {url}...")
             driver.get(url)
             time.sleep(3)  # Đợi 3 giây để trang tải hoàn toàn
+
+            # Check for CSRF token and other hidden fields
+            print("Đang kiểm tra CSRF token và các trường ẩn khác...")
+            try:
+                # Find all hidden inputs
+                hidden_inputs = driver.find_elements(By.XPATH, "//input[@type='hidden']")
+                csrf_token = None
+                redirect_field = None
+
+                for hidden_input in hidden_inputs:
+                    input_name = hidden_input.get_attribute('name')
+                    input_value = hidden_input.get_attribute('value')
+                    print(f"Trường ẩn: {input_name} = {input_value}")
+
+                    if input_name == 'csrf_token':
+                        csrf_token = input_value
+                        print(f"Đã tìm thấy CSRF token: {csrf_token}")
+                    elif input_name == 'redirect':
+                        redirect_field = input_value
+                        print(f"Đã tìm thấy trường redirect: {redirect_field}")
+            except Exception as e:
+                print(f"Lỗi khi kiểm tra CSRF token: {e}")
 
             # Tìm trường tên đăng nhập bằng nhiều cách khác nhau
             print("Đang tìm trường nhập tên đăng nhập...")
@@ -202,7 +249,11 @@ class LoginModel:
             time.sleep(1)  # Đợi một chút giữa các thao tác
 
             password_field.clear()
-            password_field.send_keys(password)
+            if password:  # Chỉ điền mật khẩu nếu có
+                password_field.send_keys(password)
+                print("Đã điền mật khẩu")
+            else:
+                print("Mật khẩu trống, không điền gì")
             time.sleep(1)  # Đợi một chút giữa các thao tác
 
             # Tìm nút đăng nhập bằng nhiều cách khác nhau
@@ -252,21 +303,143 @@ class LoginModel:
 
             # Đợi trang phản hồi sau khi nhấn nút
             print("Đang đợi trang phản hồi...")
-            time.sleep(5)  # Đợi lâu hơn để đảm bảo trang đã tải xong
+            time.sleep(10)  # Đợi lâu hơn để đảm bảo trang đã tải xong
+
+            # Kiểm tra xem có bị chuyển hướng về trang login không (có thể do CSRF token không hợp lệ)
+            if "login" in driver.current_url.lower():
+                print("Vẫn ở trang login, có thể do CSRF token không hợp lệ. Thử lại với JavaScript...")
+                try:
+                    # Tìm form đăng nhập
+                    login_form = driver.find_element(By.TAG_NAME, "form")
+                    form_action = login_form.get_attribute("action")
+                    form_method = login_form.get_attribute("method")
+                    print(f"Form action: {form_action}, method: {form_method}")
+
+                    # Tìm tất cả các input trong form
+                    inputs = login_form.find_elements(By.TAG_NAME, "input")
+                    form_data = {}
+
+                    for input_field in inputs:
+                        input_name = input_field.get_attribute("name")
+                        input_value = input_field.get_attribute("value")
+                        if input_name:
+                            form_data[input_name] = input_value
+
+                    # Cập nhật giá trị username và password
+                    if "login" in form_data:
+                        form_data["login"] = username
+                    if "password" in form_data:
+                        form_data["password"] = password
+
+                    print(f"Form data: {form_data}")
+
+                    # Tạo JavaScript để submit form
+                    js_code = """
+                    var form = document.querySelector('form');
+                    """
+
+                    for name, value in form_data.items():
+                        js_code += f"""
+                        var input = form.querySelector('[name="{name}"]');
+                        if (input) {{
+                            input.value = "{value}";
+                        }}
+                        """
+
+                    js_code += """
+                    form.submit();
+                    """
+
+                    # Thực thi JavaScript
+                    print("Đang submit form bằng JavaScript...")
+                    driver.execute_script(js_code)
+
+                    # Đợi trang phản hồi sau khi submit
+                    print("Đang đợi trang phản hồi sau khi submit bằng JavaScript...")
+                    time.sleep(10)  # Đợi lâu hơn để đảm bảo trang đã tải xong
+                except Exception as e:
+                    print(f"Lỗi khi thử submit form bằng JavaScript: {e}")
+                    # Nếu JavaScript không hoạt động, thử phương pháp khác
+                    try:
+                        # Refresh trang để lấy CSRF token mới
+                        print("Đang refresh trang để lấy CSRF token mới...")
+                        driver.refresh()
+                        time.sleep(5)
+
+                        # Tìm lại các trường input
+                        username_field = driver.find_element(By.ID, "login")
+                        password_field = driver.find_element(By.ID, "password")
+
+                        # Điền lại thông tin
+                        username_field.clear()
+                        username_field.send_keys(username)
+                        time.sleep(1)
+
+                        password_field.clear()
+                        password_field.send_keys(password)
+                        time.sleep(1)
+
+                        # Tìm lại nút đăng nhập
+                        login_button = driver.find_element(By.XPATH, "//button[@type='submit']")
+
+                        # Nhấn nút đăng nhập
+                        print("Đang nhấn nút đăng nhập lần thứ hai...")
+                        login_button.click()
+
+                        # Đợi trang phản hồi
+                        print("Đang đợi trang phản hồi lần thứ hai...")
+                        time.sleep(10)
+                    except Exception as e2:
+                        print(f"Lỗi khi thử đăng nhập lần thứ hai: {e2}")
+                        # Không làm gì thêm, tiếp tục kiểm tra kết quả đăng nhập
 
             # Kiểm tra đăng nhập thành công bằng nhiều cách
             print("Đang kiểm tra kết quả đăng nhập...")
+            print(f"URL hiện tại: {driver.current_url}")
+            print(f"Tiêu đề trang: {driver.title}")
+
+            # Lưu screenshot để debug
+            screenshot_path = f"login_result_{username}_{int(time.time())}.png"
+            driver.save_screenshot(screenshot_path)
+            print(f"Đã lưu ảnh màn hình tại: {screenshot_path}")
+
+            # Kiểm tra các chỉ báo thành công
             success_indicators = [
                 "dashboard" in driver.current_url,
                 "account" in driver.current_url,
                 "profile" in driver.current_url,
                 "home" in driver.current_url,
+                "slides" in driver.current_url,  # URL của trang khóa học
+                "my" in driver.current_url,      # URL của trang cá nhân
                 "logout" in driver.page_source.lower(),
                 "sign out" in driver.page_source.lower(),
                 "đăng xuất" in driver.page_source.lower(),
                 username in driver.page_source,
-                "login" not in driver.current_url.lower()  # If we're no longer on the login page
+                "login" not in driver.current_url.lower(),  # If we're no longer on the login page
+                "web/login" not in driver.current_url.lower()  # Specific check for eco-tek.com.vn
             ]
+
+            # Kiểm tra thêm các phần tử trên trang để xác định đăng nhập thành công
+            try:
+                # Kiểm tra các phần tử chỉ xuất hiện sau khi đăng nhập
+                user_menu = driver.find_elements(By.XPATH, "//div[contains(@class, 'o_user_menu') or contains(@class, 'oe_topbar_name')]")
+                if user_menu:
+                    print("Đã tìm thấy menu người dùng, có thể đã đăng nhập thành công")
+                    success_indicators.append(True)
+
+                # Kiểm tra nút đăng xuất
+                logout_buttons = driver.find_elements(By.XPATH, "//a[contains(@href, 'logout') or contains(text(), 'Logout') or contains(text(), 'Sign out') or contains(text(), 'Đăng xuất')]")
+                if logout_buttons:
+                    print("Đã tìm thấy nút đăng xuất, có thể đã đăng nhập thành công")
+                    success_indicators.append(True)
+
+                # Kiểm tra tên người dùng hiển thị
+                user_display = driver.find_elements(By.XPATH, f"//*[contains(text(), '{username}')]")
+                if user_display:
+                    print(f"Đã tìm thấy tên người dùng {username} trên trang, có thể đã đăng nhập thành công")
+                    success_indicators.append(True)
+            except Exception as e:
+                print(f"Lỗi khi kiểm tra các phần tử đăng nhập thành công: {e}")
 
             if any(success_indicators):
                 print(f"Tài khoản {username} đăng nhập thành công!")
@@ -346,6 +519,97 @@ class LoginModel:
                 return True
             else:
                 print(f"Tài khoản {username} đăng nhập thất bại.")
+                # Thử phương pháp cuối cùng: Điều hướng trực tiếp đến URL khóa học
+                print("Đăng nhập thất bại, thử điều hướng trực tiếp đến URL khóa học...")
+                try:
+                    # Thử đăng nhập lại một lần nữa với JavaScript
+                    print("Thử đăng nhập lại với JavaScript trước khi điều hướng trực tiếp...")
+                    try:
+                        # Tìm form đăng nhập
+                        login_form = driver.find_element(By.TAG_NAME, "form")
+
+                        # Tạo JavaScript để submit form
+                        js_code = """
+                        var form = document.querySelector('form');
+                        var loginInput = form.querySelector('[name="login"]');
+                        var passwordInput = form.querySelector('[name="password"]');
+
+                        if (loginInput) {
+                            loginInput.value = arguments[0];
+                        }
+
+                        if (passwordInput) {
+                            passwordInput.value = arguments[1];
+                        }
+
+                        form.submit();
+                        """
+
+                        # Thực thi JavaScript
+                        driver.execute_script(js_code, username, password)
+                        print("Đã submit form đăng nhập bằng JavaScript")
+                        time.sleep(10)  # Đợi trang phản hồi
+
+                        # Kiểm tra lại xem có thành công không
+                        if "login" not in driver.current_url.lower():
+                            print("Đăng nhập bằng JavaScript thành công!")
+                            return True
+                    except Exception as js_error:
+                        print(f"Lỗi khi thử đăng nhập bằng JavaScript: {js_error}")
+
+                    # Thử điều hướng trực tiếp đến trang khóa học
+                    course_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides/cau-tao-va-sua-chua-thong-thuong-xe-oto-283"
+                    print(f"Đang chuyển hướng đến trang khóa học: {course_url}")
+                    driver.get(course_url)
+                    time.sleep(10)  # Đợi lâu hơn để đảm bảo trang đã tải xong
+
+                    # Kiểm tra lại xem có thành công không
+                    print(f"URL sau khi điều hướng trực tiếp: {driver.current_url}")
+                    print(f"Tiêu đề trang sau khi điều hướng trực tiếp: {driver.title}")
+
+                    # Lưu screenshot để debug
+                    screenshot_path = f"direct_navigation_{username}_{int(time.time())}.png"
+                    driver.save_screenshot(screenshot_path)
+                    print(f"Đã lưu ảnh màn hình sau khi điều hướng trực tiếp tại: {screenshot_path}")
+
+                    # Kiểm tra xem có bị chuyển hướng về trang login không
+                    if "login" not in driver.current_url.lower():
+                        print("Điều hướng trực tiếp thành công, không bị chuyển về trang login")
+
+                        # Thử tìm các phần tử chỉ xuất hiện trong trang khóa học
+                        try:
+                            course_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'o_wslides_lesson_content') or contains(@class, 'o_wslides_lesson_main')]")
+                            if course_elements:
+                                print(f"Đã tìm thấy {len(course_elements)} phần tử khóa học, xác nhận đã vào được trang khóa học")
+                                return True
+                        except Exception as e:
+                            print(f"Lỗi khi tìm phần tử khóa học: {e}")
+
+                        # Nếu không tìm thấy phần tử khóa học cụ thể, vẫn trả về True vì URL không phải trang login
+                        return True
+                    else:
+                        print("Điều hướng trực tiếp thất bại, bị chuyển về trang login")
+
+                        # Thử một URL khóa học khác
+                        try:
+                            alternative_url = "https://hoclythuyetlaixe.eco-tek.com.vn/slides"
+                            print(f"Thử URL khóa học thay thế: {alternative_url}")
+                            driver.get(alternative_url)
+                            time.sleep(10)
+
+                            if "login" not in driver.current_url.lower():
+                                print("Điều hướng đến URL thay thế thành công!")
+                                return True
+                            else:
+                                print("Điều hướng đến URL thay thế thất bại")
+                                return False
+                        except Exception as alt_error:
+                            print(f"Lỗi khi thử URL thay thế: {alt_error}")
+                            return False
+                except Exception as direct_nav_error:
+                    print(f"Lỗi khi điều hướng trực tiếp: {direct_nav_error}")
+                    return False
+
                 return False
 
         except Exception as e:

@@ -36,18 +36,53 @@ class CourseNavigationModel:
             # Navigate to the course page
             print(f"Navigating to course page: {course_url}")
             self.driver.get(course_url)
-            time.sleep(3)  # Wait for page to load
+            time.sleep(5)  # Increased wait time for page to load completely
 
-            # Find all lesson links using the specific XPath provided
+            # Find all lesson links using multiple XPath approaches
             lessons_less_than_50_percent = []
             first_lesson_clicked = False
 
-            # COMPLETELY NEW APPROACH: Directly find all li elements and check their content
-            print("Using new approach: Directly finding li elements and checking their content")
+            # ROBUST APPROACH: Try multiple XPath patterns to find lesson elements
+            print("Using robust approach: Trying multiple XPath patterns to find lesson elements")
+
+            # Try multiple XPath patterns to find lesson elements
             try:
-                # Use the specific XPath provided in the issue description to get all li elements
-                li_elements = self.driver.find_elements(By.XPATH, "//*[@id=\"home\"]/div/ul/li/ul/li")
-                print(f"Found {len(li_elements)} li elements using the specific XPath")
+                # List of XPath patterns to try
+                xpath_patterns = [
+                    "//*[@id=\"home\"]/div/ul/li/ul/li",  # Original XPath
+                    "//li[contains(@class, 'o_wslides_lesson_list_item')]",  # Class-based XPath
+                    "//li[contains(@class, 'lesson')]",  # Generic lesson class
+                    "//a[contains(@class, 'o_wslides_js_slides_list_slide_link')]",  # Direct lesson links
+                    "//div[contains(@class, 'o_wslides_lesson_content')]//li",  # Lesson content container
+                    "//ul[contains(@class, 'o_wslides_lesson_list')]/li",  # Lesson list items
+                    "//li[.//span[contains(text(), '%')]]"  # Any li containing a span with percentage
+                ]
+
+                li_elements = []
+
+                # Try each XPath pattern until we find elements
+                for xpath in xpath_patterns:
+                    try:
+                        print(f"Trying XPath pattern: {xpath}")
+                        elements = self.driver.find_elements(By.XPATH, xpath)
+                        if elements:
+                            print(f"Found {len(elements)} elements using XPath: {xpath}")
+                            li_elements = elements
+                            break
+                    except Exception as e:
+                        print(f"Error with XPath pattern {xpath}: {e}")
+
+                # If no elements found with any XPath, try a more generic approach
+                if not li_elements:
+                    print("No elements found with specific XPaths, trying generic approach")
+                    try:
+                        # Look for any links that might be lessons
+                        li_elements = self.driver.find_elements(By.TAG_NAME, "a")
+                        print(f"Found {len(li_elements)} anchor elements as fallback")
+                    except Exception as e:
+                        print(f"Error with generic approach: {e}")
+
+                print(f"Found {len(li_elements)} potential lesson elements")
 
                 # Process each li element to find those with less than 50% completion
                 for li in li_elements:
@@ -116,12 +151,47 @@ class CourseNavigationModel:
                                     if not first_lesson_clicked:
                                         try:
                                             print(f"Clicking on lesson with <50% completion: {lesson_title}")
+                                            # Store the current URL before clicking
+                                            before_url = self.driver.current_url
+
+                                            # Try clicking the anchor
                                             anchor.click()
                                             first_lesson_clicked = True
-                                            time.sleep(3)  # Wait for the lesson page to load
+                                            time.sleep(5)  # Increased wait time for the lesson page to load
+
+                                            # Check if the page changed
+                                            after_url = self.driver.current_url
+                                            if after_url == before_url:
+                                                print(f"Warning: URL did not change after clicking. Before: {before_url}, After: {after_url}")
+                                                # Try direct navigation as fallback
+                                                if lesson_url:
+                                                    print(f"Trying direct navigation to lesson URL: {lesson_url}")
+                                                    self.driver.get(lesson_url)
+                                                    time.sleep(5)  # Wait for page to load
+
+                                            # Check if we got a blank page (no content)
+                                            page_source = self.driver.page_source
+                                            if len(page_source.strip()) < 100 or "404" in page_source or "not found" in page_source.lower():
+                                                print(f"Warning: Possible blank page or error page detected. Page source length: {len(page_source.strip())}")
+                                                # Try direct navigation as fallback
+                                                if lesson_url:
+                                                    print(f"Trying direct navigation to lesson URL: {lesson_url}")
+                                                    self.driver.get(lesson_url)
+                                                    time.sleep(5)  # Wait for page to load
+
                                             break  # Exit the loop after clicking
                                         except Exception as click_error:
                                             print(f"Error clicking on lesson: {click_error}")
+                                            # Try direct navigation as fallback
+                                            if lesson_url:
+                                                try:
+                                                    print(f"Trying direct navigation to lesson URL after click error: {lesson_url}")
+                                                    self.driver.get(lesson_url)
+                                                    first_lesson_clicked = True
+                                                    time.sleep(5)  # Wait for page to load
+                                                    break  # Exit the loop after navigation
+                                                except Exception as nav_error:
+                                                    print(f"Error navigating directly to lesson URL: {nav_error}")
                                 else:
                                     print(f"No anchor found in li with <50% completion")
 
@@ -148,13 +218,48 @@ class CourseNavigationModel:
                                             # Click on the first lesson with <50% completion
                                             if not first_lesson_clicked:
                                                 try:
-                                                    print(f"Clicking on lesson with <50% completion: {lesson_title}")
+                                                    print(f"Clicking on lesson with <50% completion (via parent): {lesson_title}")
+                                                    # Store the current URL before clicking
+                                                    before_url = self.driver.current_url
+
+                                                    # Try clicking the anchor
                                                     anchor.click()
                                                     first_lesson_clicked = True
-                                                    time.sleep(3)  # Wait for the lesson page to load
+                                                    time.sleep(5)  # Increased wait time for the lesson page to load
+
+                                                    # Check if the page changed
+                                                    after_url = self.driver.current_url
+                                                    if after_url == before_url:
+                                                        print(f"Warning: URL did not change after clicking parent. Before: {before_url}, After: {after_url}")
+                                                        # Try direct navigation as fallback
+                                                        if lesson_url:
+                                                            print(f"Trying direct navigation to lesson URL (parent): {lesson_url}")
+                                                            self.driver.get(lesson_url)
+                                                            time.sleep(5)  # Wait for page to load
+
+                                                    # Check if we got a blank page (no content)
+                                                    page_source = self.driver.page_source
+                                                    if len(page_source.strip()) < 100 or "404" in page_source or "not found" in page_source.lower():
+                                                        print(f"Warning: Possible blank page or error page detected (parent). Page source length: {len(page_source.strip())}")
+                                                        # Try direct navigation as fallback
+                                                        if lesson_url:
+                                                            print(f"Trying direct navigation to lesson URL (parent): {lesson_url}")
+                                                            self.driver.get(lesson_url)
+                                                            time.sleep(5)  # Wait for page to load
+
                                                     break  # Exit the loop after clicking
                                                 except Exception as click_error:
-                                                    print(f"Error clicking on lesson: {click_error}")
+                                                    print(f"Error clicking on lesson (parent): {click_error}")
+                                                    # Try direct navigation as fallback
+                                                    if lesson_url:
+                                                        try:
+                                                            print(f"Trying direct navigation to lesson URL after parent click error: {lesson_url}")
+                                                            self.driver.get(lesson_url)
+                                                            first_lesson_clicked = True
+                                                            time.sleep(5)  # Wait for page to load
+                                                            break  # Exit the loop after navigation
+                                                        except Exception as nav_error:
+                                                            print(f"Error navigating directly to lesson URL (parent): {nav_error}")
                                     except Exception as e:
                                         print(f"Error finding anchor in parent: {e}")
                             except Exception as e:
@@ -308,12 +413,45 @@ class CourseNavigationModel:
                             # Click on the first lesson with <50% completion if we haven't clicked on one yet
                             if not first_lesson_clicked:
                                 try:
-                                    print(f"Clicking on lesson with <50% completion: {lesson_title}")
+                                    print(f"Clicking on lesson with <50% completion (fallback): {lesson_title}")
+                                    # Store the current URL before clicking
+                                    before_url = self.driver.current_url
+
+                                    # Try clicking the element
                                     element.click()
                                     first_lesson_clicked = True
-                                    time.sleep(3)  # Wait for the lesson page to load
+                                    time.sleep(5)  # Increased wait time for the lesson page to load
+
+                                    # Check if the page changed
+                                    after_url = self.driver.current_url
+                                    if after_url == before_url:
+                                        print(f"Warning: URL did not change after clicking (fallback). Before: {before_url}, After: {after_url}")
+                                        # Try direct navigation as fallback
+                                        if lesson_url:
+                                            print(f"Trying direct navigation to lesson URL (fallback): {lesson_url}")
+                                            self.driver.get(lesson_url)
+                                            time.sleep(5)  # Wait for page to load
+
+                                    # Check if we got a blank page (no content)
+                                    page_source = self.driver.page_source
+                                    if len(page_source.strip()) < 100 or "404" in page_source or "not found" in page_source.lower():
+                                        print(f"Warning: Possible blank page or error page detected (fallback). Page source length: {len(page_source.strip())}")
+                                        # Try direct navigation as fallback
+                                        if lesson_url:
+                                            print(f"Trying direct navigation to lesson URL (fallback): {lesson_url}")
+                                            self.driver.get(lesson_url)
+                                            time.sleep(5)  # Wait for page to load
                                 except Exception as click_error:
-                                    print(f"Error clicking on lesson: {click_error}")
+                                    print(f"Error clicking on lesson (fallback): {click_error}")
+                                    # Try direct navigation as fallback
+                                    if lesson_url:
+                                        try:
+                                            print(f"Trying direct navigation to lesson URL after fallback click error: {lesson_url}")
+                                            self.driver.get(lesson_url)
+                                            first_lesson_clicked = True
+                                            time.sleep(5)  # Wait for page to load
+                                        except Exception as nav_error:
+                                            print(f"Error navigating directly to lesson URL (fallback): {nav_error}")
                     except Exception as e:
                         print(f"Error processing lesson element: {e}")
                         continue

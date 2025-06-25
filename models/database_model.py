@@ -16,7 +16,7 @@ class DatabaseModel:
         self.db_port = 3306
         self.db_name = "register"
         self.db_user = "root"
-        self.db_password = ""
+        self.db_password = "root"
 
         self.connection = None
         self.cursor = None

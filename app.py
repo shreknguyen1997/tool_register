@@ -3,7 +3,7 @@ import os
 from selenium import webdriver
 import requests
 import json
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, 
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
                             QLineEdit, QHBoxLayout, QSpacerItem, QSizePolicy, QMessageBox,
                             QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, 
                             QAbstractItemView, QFrame, QToolButton, QTabWidget)
@@ -29,12 +29,13 @@ import time
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
-
         # Khởi tạo các thành phần MVC cho login
         # Sử dụng đường dẫn tương đối để tìm ChromeDriver
         current_dir = os.path.dirname(os.path.abspath(__file__))
         driver_path = os.path.join(current_dir, "chromedriver", "chromedriver")
+
         print(f"ChromeDriver path: {driver_path}")
+        # self.driver.execute_cdp_cmd('Network.enable', {})
 
         # Initialize the list of incomplete lessons
         self.incomplete_lessons = []
@@ -998,6 +999,26 @@ class MainWindow(QWidget):
         """
         return self.incomplete_lessons
 
+    def log_api_requests(self, request):
+        # Check if it's an XHR or Fetch request
+        if 'xhr' in request.get('type', '').lower():
+            url = request.get('url', '')
+            method = request.get('method', '')
+            headers = request.get('headers', {})
+
+            print(f"[CDP] API Request URL: {url}")
+            print(f"[CDP] Request Method: {method}")
+            print(f"[CDP] Request Headers: {headers}")
+
+            # If it's the countdown API, log more details
+            if 'countdown-start' in url:
+                print(f"[CDP] Found countdown API request via CDP: {url}")
+                # Try to extract response data if available
+                response = request.get('response', {})
+                if response:
+                    print(f"[CDP] Response status: {response.get('status')}")
+                    print(f"[CDP] Response body: {response.get('body', '')[:100]}...")  # First 100 chars
+
     def fetch_countdown_data(self, driver):
         """
         Fetch countdown data from the network tab in browser's developer tools using CDP
@@ -1014,36 +1035,15 @@ class MainWindow(QWidget):
             current_url = driver.current_url
             print(f"[DEVTOOLS] Current URL: {current_url}")
 
-            print(f"[DEVTOOLS] Looking for API endpoint: https://hoclythuyetlaixe.eco-tek.com.vn/slide/countdown-start/")
+            print(f"[ DEVTOOLS] Looking for API endpoint: https://hoclythuyetlaixe.eco-tek.com.vn/slide/countdown-start/")
             print(f"[DEVTOOLS] Using Chrome DevTools Protocol (CDP) to monitor network requests...")
 
             # Enable network monitoring using CDP
-            devtools = driver.execute_cdp_cmd('Network.enable', {})  # Enable network monitoring
-
             # Define a function to log API requests
-            def log_api_requests(request):
-                # Check if it's an XHR or Fetch request
-                if 'xhr' in request.get('type', '').lower():
-                    url = request.get('url', '')
-                    method = request.get('method', '')
-                    headers = request.get('headers', {})
-
-                    print(f"[CDP] API Request URL: {url}")
-                    print(f"[CDP] Request Method: {method}")
-                    print(f"[CDP] Request Headers: {headers}")
-
-                    # If it's the countdown API, log more details
-                    if 'countdown-start' in url:
-                        print(f"[CDP] Found countdown API request via CDP: {url}")
-                        # Try to extract response data if available
-                        response = request.get('response', {})
-                        if response:
-                            print(f"[CDP] Response status: {response.get('status')}")
-                            print(f"[CDP] Response body: {response.get('body', '')[:100]}...")  # First 100 chars
 
             # Set up the request interceptor
             try:
-                driver.request_interceptor = log_api_requests
+                self.driver.request_interceptor = self.log_api_requests
                 print(f"[CDP] Request interceptor set up successfully")
             except Exception as e:
                 print(f"[CDP] Error setting up request interceptor: {e}")
